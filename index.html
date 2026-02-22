@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hoop World</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <!-- Global background canvas (floating hoops) -->
+    <canvas id="menuBgCanvas"></canvas>
+
+    <!-- Start Screen -->
+    <div id="startScreen" class="screen" onclick="goToMenu()">
+        <canvas id="bgCanvas"></canvas>
+        <div class="screen-content">
+            <h1 class="game-logo">H<span class="ball-o"></span><span class="ball-o"></span>P WORLD</h1>
+            <p class="start-text">Press any key to start</p>
+        </div>
+    </div>
+
+    <!-- Main Menu Screen -->
+    <div id="menuScreen" class="screen" style="display: none;">
+        <div class="screen-content">
+            <h1 class="game-logo">H<span class="ball-o"></span><span class="ball-o"></span>P WORLD</h1>
+            <p class="menu-subtitle">Main Menu</p>
+            <div class="menu-box">
+                <div class="menu-options">
+                    <button id="seasonBtn" class="btn btn-menu btn-primary">Season Mode</button>
+                    <button id="exhibitionBtn" class="btn btn-menu">Exhibition Game</button>
+                    <button id="tutorialBtn" class="btn btn-menu">Tutorial</button>
+                    <button id="settingsBtn" class="btn btn-menu">Settings</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Season Mode: Slot Selection -->
+    <div id="slotScreen" class="screen" style="display: none;">
+        <div class="screen-content season-screen-content">
+            <h1 class="season-title">SEASON MODE</h1>
+            <p class="season-subtitle">Choose a save slot</p>
+            <div id="slotList" class="slot-list"></div>
+            <button id="slotBackBtn" class="btn btn-secondary" style="margin-top:20px;">Back to Menu</button>
+        </div>
+    </div>
+
+    <!-- Season Mode: Mode Picker -->
+    <div id="modePickerScreen" class="screen" style="display: none;">
+        <div class="screen-content season-screen-content">
+            <h1 class="season-title">CHOOSE A MODE</h1>
+            <div class="mode-picker-list">
+                <div class="mode-card" id="modeCollege">
+                    <div class="mode-card-header">Career Mode</div>
+                    <p class="mode-card-desc">Choose your team, play or sim games, climb the standings, and make a run through the tournament to win the championship.</p>
+                    <button class="btn btn-primary">Play</button>
+                </div>
+                <div class="mode-card mode-card-locked" id="modeFranchise">
+                    <div class="mode-card-header">Franchise Mode</div>
+                    <p class="mode-card-desc">Take control of an NBA franchise. Manage your roster, make trades, sign free agents, and build a dynasty across multiple seasons.</p>
+                    <div class="mode-coming-soon">COMING SOON</div>
+                </div>
+                <div class="mode-card mode-card-locked" id="modeCommissioner">
+                    <div class="mode-card-header">Commissioner Mode</div>
+                    <p class="mode-card-desc">Run the entire league. Set rules, control expansion, manage the draft, and shape the future of basketball from the top.</p>
+                    <div class="mode-coming-soon">COMING SOON</div>
+                </div>
+            </div>
+            <button id="modePickerBackBtn" class="btn btn-secondary" style="margin-top:20px;">Back</button>
+        </div>
+    </div>
+
+    <!-- Season Mode: Career Intro -->
+    <div id="careerIntroScreen" class="screen" style="display: none;">
+        <div class="screen-content">
+            <div class="career-intro-box">
+                <h1 class="career-intro-title">WELCOME TO CAREER MODE</h1>
+                <p class="career-intro-text">You are one of the top prospects in the world, coming fresh out of high school. Now it's time to make your decision.</p>
+                <p class="career-intro-text">Lead your team through the season, climb the standings, and make a run at the championship.</p>
+                <button id="careerIntroContinueBtn" class="btn btn-primary btn-large">Continue</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Season Mode: Create Player -->
+    <div id="createPlayerScreen" class="screen" style="display: none;">
+        <div class="screen-content">
+            <div class="create-player-box">
+                <h1 class="season-title">CREATE YOUR PLAYER</h1>
+                <div class="create-layout">
+                    <div class="create-preview-col">
+                        <canvas id="playerPreviewCanvas" width="240" height="380" style="display:block;margin:0 auto;image-rendering:pixelated;"></canvas>
+                    </div>
+                    <div class="create-options-col">
+                        <div class="create-field-row">
+                            <div class="create-field">
+                                <label class="create-label">First Name</label>
+                                <input type="text" id="playerFirstNameInput" class="create-input" placeholder="First" maxlength="15">
+                            </div>
+                            <div class="create-field">
+                                <label class="create-label">Last Name</label>
+                                <input type="text" id="playerLastNameInput" class="create-input" placeholder="Last" maxlength="15">
+                            </div>
+                        </div>
+                        <div class="create-field" style="max-width:120px;">
+                            <label class="create-label">Number</label>
+                            <input type="number" id="playerNumberInput" class="create-input" placeholder="#" min="0" max="99" value="1">
+                        </div>
+                        <div class="create-field">
+                            <label class="create-label">Skin Color</label>
+                            <div id="skinColorArrow" class="arrow-picker"></div>
+                        </div>
+                        <div class="create-field">
+                            <label class="create-label">Hair Style</label>
+                            <div id="hairStyleArrow" class="arrow-picker"></div>
+                        </div>
+                        <div class="create-field">
+                            <label class="create-label">Hair Color</label>
+                            <div id="hairColorArrow" class="arrow-picker"></div>
+                        </div>
+                        <div class="create-field">
+                            <label class="create-label">Eyebrows</label>
+                            <div id="eyebrowArrow" class="arrow-picker"></div>
+                        </div>
+                        <div class="create-field">
+                            <label class="create-label">Position</label>
+                            <div id="positionArrow" class="arrow-picker"></div>
+                        </div>
+                        <div class="create-field-row">
+                            <div class="create-field">
+                                <label class="create-label">Height</label>
+                                <div id="heightArrow" class="arrow-picker"></div>
+                            </div>
+                            <div class="create-field">
+                                <label class="create-label">Weight</label>
+                                <div id="weightArrow" class="arrow-picker"></div>
+                            </div>
+                        </div>
+                        <div class="create-field">
+                            <label class="create-label">Home State</label>
+                            <div id="stateArrow" class="arrow-picker"></div>
+                        </div>
+                        <div class="create-field" id="cityField" style="display:none;">
+                            <label class="create-label">City</label>
+                            <div id="cityArrow" class="arrow-picker"></div>
+                            <input type="text" id="customCityInput" class="create-input" placeholder="Enter your city" maxlength="25" style="display:none;margin-top:6px;">
+                        </div>
+                        <div class="create-field">
+                            <label class="create-label">Primary Archetype</label>
+                            <div id="primaryArchArrow" class="arrow-picker"></div>
+                        </div>
+                        <div class="create-field">
+                            <label class="create-label">Secondary Archetype</label>
+                            <div id="secondaryArchArrow" class="arrow-picker"></div>
+                        </div>
+                        <div class="create-field">
+                            <label class="create-label">Attribute Ratings</label>
+                            <div id="attributeDisplay" class="attribute-display"></div>
+                        </div>
+                        <p id="createPlayerError" class="create-error"></p>
+                        <button id="createPlayerContinueBtn" class="btn btn-primary btn-large" style="margin-top:20px;">Continue</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Season Mode: Player Profile -->
+    <div id="playerProfileScreen" class="screen" style="display: none;">
+        <div class="screen-content">
+            <div class="profile-card">
+                <div class="profile-header">PLAYER PROFILE</div>
+                <canvas id="profilePreviewCanvas" width="160" height="260"></canvas>
+                <div id="profileName" class="profile-name"></div>
+                <div id="profileDetails" class="profile-details"></div>
+                <div id="profileArchetypes" class="profile-archetypes"></div>
+                <div id="profileAttrs" class="profile-attrs"></div>
+                <button id="profileContinueBtn" class="btn btn-primary btn-large" style="margin-top:20px;">Choose Your College</button>
+                <button id="profileBackBtn" class="btn btn-secondary" style="margin-top:10px;">Go Back</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Season Mode: Team Selection -->
+    <div id="seasonScreen" class="screen" style="display: none;">
+        <div class="screen-content season-screen-content">
+            <h1 class="season-title">CHOOSE YOUR COLLEGE</h1>
+            <p class="season-subtitle">Select a team to lead through a 30-game season and March Madness</p>
+            <div id="teamGrid" class="team-grid"></div>
+            <div class="season-bottom-bar">
+                <button id="seasonBackBtn" class="btn btn-secondary">Back</button>
+                <button id="startSeasonBtn" class="btn btn-primary btn-large" style="display:none;">Start Season</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Season Mode: Season Hub -->
+    <div id="seasonHubScreen" class="screen" style="display: none;">
+        <div class="screen-content season-screen-content">
+            <div class="hub-header">
+                <div id="hubTeamName" class="hub-team-name"></div>
+                <div id="hubRecord" class="hub-record">0 - 0</div>
+            </div>
+            <div id="hubNextGame" class="hub-next-game"></div>
+            <div class="hub-actions">
+                <button id="playGameBtn" class="btn btn-primary btn-large">Play Game</button>
+                <button id="simGameBtn" class="btn btn-secondary btn-large">Sim Game</button>
+            </div>
+            <div class="hub-nav">
+                <button id="hubScheduleBtn" class="btn btn-menu">Schedule</button>
+                <button id="hubStandingsBtn" class="btn btn-menu">Standings</button>
+            </div>
+            <button id="hubBackBtn" class="btn btn-secondary" style="margin-top:15px;">Back to Slots</button>
+        </div>
+    </div>
+
+    <!-- Season Mode: Schedule View -->
+    <div id="scheduleScreen" class="screen" style="display: none;">
+        <div class="screen-content season-screen-content">
+            <h2 class="season-title">SCHEDULE</h2>
+            <div id="scheduleList" class="schedule-list"></div>
+            <button id="scheduleBackBtn" class="btn btn-secondary" style="margin-top:15px;">Back to Hub</button>
+        </div>
+    </div>
+
+    <!-- Season Mode: Standings View -->
+    <div id="standingsScreen" class="screen" style="display: none;">
+        <div class="screen-content season-screen-content">
+            <h2 class="season-title">STANDINGS</h2>
+            <div id="standingsTabs" class="standings-tabs"></div>
+            <div id="standingsTable" class="standings-table"></div>
+            <button id="standingsBackBtn" class="btn btn-secondary" style="margin-top:15px;">Back to Hub</button>
+        </div>
+    </div>
+
+    <!-- Season Mode: March Madness Bracket -->
+    <div id="bracketScreen" class="screen" style="display: none;">
+        <div class="screen-content season-screen-content">
+            <h2 class="season-title">MARCH MADNESS</h2>
+            <div id="bracketRoundLabel" class="bracket-round-label"></div>
+            <div id="bracketView" class="bracket-view"></div>
+            <div id="bracketActions" class="hub-actions"></div>
+            <button id="bracketBackBtn" class="btn btn-secondary" style="margin-top:15px;">Back to Hub</button>
+        </div>
+    </div>
+
+    <!-- Season Mode: Championship Screen -->
+    <div id="championScreen" class="screen" style="display: none;">
+        <div class="screen-content">
+            <div class="champion-box">
+                <h1 class="champion-title">NATIONAL CHAMPIONS!</h1>
+                <div id="championTeamName" class="champion-team-name"></div>
+                <div id="championRecord" class="champion-record"></div>
+                <canvas id="confettiCanvas" width="500" height="400"></canvas>
+                <button id="championMenuBtn" class="btn btn-primary btn-large" style="margin-top:20px;">Done</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Screen -->
+    <div id="settingsScreen" class="screen" style="display: none;">
+        <div class="screen-content">
+            <h2 class="screen-title">Settings</h2>
+            <div class="settings-box">
+                <div class="settings-section-label">Audio</div>
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span>Music</span>
+                        <span class="setting-hint">Theme music on menus</span>
+                    </div>
+                    <button id="musicToggle" class="btn-toggle">ON</button>
+                </div>
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span>Sound Effects</span>
+                        <span class="setting-hint">In-game sounds</span>
+                    </div>
+                    <button id="soundToggle" class="btn-toggle">ON</button>
+                </div>
+
+                <div class="settings-section-label">Gameplay</div>
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span>Difficulty</span>
+                        <span class="setting-hint">CPU skill level</span>
+                    </div>
+                    <button id="difficultyBtn" class="btn-cycle">NORMAL</button>
+                </div>
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span>Game Length</span>
+                        <span class="setting-hint">Time per game</span>
+                    </div>
+                    <button id="gameLengthBtn" class="btn-cycle">2:00</button>
+                </div>
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span>Shot Clock</span>
+                        <span class="setting-hint">Seconds per possession</span>
+                    </div>
+                    <button id="shotClockBtn" class="btn-cycle">24s</button>
+                </div>
+
+                <div style="text-align:center;"><button id="settingsBackBtn" class="btn btn-secondary" style="margin-top:25px;">Back to Menu</button></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Game Screen -->
+    <div id="gameScreen" class="screen" style="display: none;">
+        <div id="gameContainer">
+            <div id="gameHeader">
+                <button id="backToLobbyBtn" class="btn btn-back">Back to Menu</button>
+                <div id="gameTitle">Hoop World</div>
+                <div id="playerDisplay"></div>
+            </div>
+            <canvas id="gameCanvas"></canvas>
+            <div id="controls" style="display: none;">
+                <span><span class="key">Arrows</span> Move</span>
+                <span><span class="key">Z</span> Shoot</span>
+                <span><span class="key">X</span> Pass/Steal</span>
+                <span><span class="key">C</span> Sprint</span>
+                <span><span class="key">Space</span> Switch Player</span>
+            </div>
+            <div id="errorBox" style="display:none; color: red; background: #300; padding: 10px; margin-top: 10px; font-family: monospace; max-width: 960px; word-wrap: break-word;"></div>
+        </div>
+    </div>
+
+    <script src="js/main.js"></script>
+</body>
+</html>
