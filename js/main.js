@@ -1,53 +1,54 @@
 // Error handler (must be in same file to see details)
-window.onerror = function(msg, url, line, col, error) {
-    // Skip generic "Script error." with no details (cross-origin/file:// noise)
-    if (msg === 'Script error.' && (line === 0 || !line)) return true;
+function showError(msg, detail) {
     const errorBox = document.getElementById('errorBox');
     if (errorBox) {
         errorBox.style.display = 'block';
-        const stack = error && error.stack ? error.stack : 'no stack';
-        errorBox.innerHTML += `<p><strong>Error:</strong> ${msg}<br><small>${url}:${line}:${col}<br>${stack}</small></p>`;
+        errorBox.style.position = 'fixed';
+        errorBox.style.top = '10px';
+        errorBox.style.left = '10px';
+        errorBox.style.right = '10px';
+        errorBox.style.zIndex = '99999';
+        errorBox.style.background = '#400';
+        errorBox.style.color = '#ff4444';
+        errorBox.style.padding = '15px';
+        errorBox.style.fontSize = '14px';
+        errorBox.innerHTML += `<p><strong>Error:</strong> ${msg}<br><small>${detail || ''}</small></p>`;
     }
+    console.error('HOOP WORLD ERROR:', msg, detail);
+}
+
+window.onerror = function(msg, url, line, col, error) {
+    if (msg === 'Script error.' && (line === 0 || !line)) return true;
+    const stack = error && error.stack ? error.stack : 'no stack';
+    showError(msg, `${url}:${line}:${col}\n${stack}`);
     return false;
 };
+
+window.addEventListener('unhandledrejection', function(e) {
+    showError('Unhandled promise: ' + (e.reason || 'unknown'), e.reason && e.reason.stack);
+});
 
 // Hoop World - Basketball Game
 
 // === HOOP WORLD THEME ===
 // Peaceful yet energetic - uplifting and inspiring
-let audioCtx = null;
-let musicPlaying = false;
-let masterGain = null;
-let musicLoopTimer = null;
+var audioCtx = null;
+var musicPlaying = false;
+var masterGain = null;
+var musicLoopTimer = null;
+var currentSongIndex = 0;
 
-function startMusic() {
-    if (musicPlaying) return;
+// Shared note frequencies
+const N = {
+    C2: 65.41, D2: 73.42, E2: 82.41, F2: 87.31, G2: 98.00, A2: 110.00, B2: 123.47,
+    C3: 130.81, D3: 146.83, E3: 164.81, F3: 174.61, G3: 196.00, A3: 220.00, B3: 246.94,
+    C4: 261.63, D4: 293.66, E4: 329.63, F4: 349.23, G4: 392.00, A4: 440.00, B4: 493.88,
+    C5: 523.25, D5: 587.33, E5: 659.25, F5: 698.46, G5: 783.99, A5: 880.00, B5: 987.77,
+    C6: 1046.50, D6: 1174.66, E6: 1318.51
+};
 
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    musicPlaying = true;
-
-    masterGain = audioCtx.createGain();
-    masterGain.gain.value = 0.18;
-    masterGain.connect(audioCtx.destination);
-
-    startMusicNotes(audioCtx.currentTime + 0.1);
-}
-
-function startMusicNotes(startTime) {
-    if (!musicPlaying || !audioCtx) return;
-
-    // Notes
-    const N = {
-        C3: 130.81, D3: 146.83, E3: 164.81, F3: 174.61, G3: 196.00, A3: 220.00, B3: 246.94,
-        C4: 261.63, D4: 293.66, E4: 329.63, F4: 349.23, G4: 392.00, A4: 440.00, B4: 493.88,
-        C5: 523.25, D5: 587.33, E5: 659.25, F5: 698.46, G5: 783.99, A5: 880.00, B5: 987.77,
-        C6: 1046.50, D6: 1174.66, E6: 1318.51
-    };
-
-    const bpm = 95;
-    const bt = 60 / bpm;
-
-    // Smooth synth note
+// Shared instrument functions (created per song call)
+function createInstruments(audioCtx, masterGain) {
     function synth(freq, time, dur, vol = 0.1, wave = 'sine') {
         if (!musicPlaying || !audioCtx) return;
         const o = audioCtx.createOscillator();
@@ -68,15 +69,13 @@ function startMusicNotes(startTime) {
         o.stop(time + dur + 0.1);
     }
 
-    // Warm pad
     function pad(freqs, time, dur, vol = 0.04) {
         freqs.forEach(f => {
             synth(f, time, dur, vol, 'sine');
-            synth(f * 1.002, time, dur, vol * 0.5, 'sine'); // Slight detune for warmth
+            synth(f * 1.002, time, dur, vol * 0.5, 'sine');
         });
     }
 
-    // Plucky sound
     function pluck(freq, time, dur, vol = 0.12) {
         if (!musicPlaying || !audioCtx) return;
         const o = audioCtx.createOscillator();
@@ -96,7 +95,6 @@ function startMusicNotes(startTime) {
         o.stop(time + dur + 0.1);
     }
 
-    // Soft kick
     function kick(time, vol = 0.15) {
         if (!musicPlaying || !audioCtx) return;
         const o = audioCtx.createOscillator();
@@ -112,7 +110,6 @@ function startMusicNotes(startTime) {
         o.stop(time + 0.35);
     }
 
-    // Snappy snare
     function snare(time, vol = 0.08) {
         if (!musicPlaying || !audioCtx) return;
         const buf = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.1, audioCtx.sampleRate);
@@ -131,7 +128,6 @@ function startMusicNotes(startTime) {
         n.start(time);
     }
 
-    // Light hi-hat
     function hat(time, vol = 0.04) {
         if (!musicPlaying || !audioCtx) return;
         const buf = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.03, audioCtx.sampleRate);
@@ -150,242 +146,637 @@ function startMusicNotes(startTime) {
         n.start(time);
     }
 
-    // Bass note
     function bass(freq, time, dur, vol = 0.13) {
         synth(freq, time, dur, vol, 'sine');
         synth(freq, time, dur * 0.5, vol * 0.3, 'triangle');
     }
 
-    // Arpeggio pattern
     function arp(notes, time, noteDur, vol = 0.07) {
         notes.forEach((n, i) => pluck(n, time + i * noteDur, noteDur * 1.5, vol));
     }
 
-    let t = startTime;
+    return { synth, pad, pluck, kick, snare, hat, bass, arp };
+}
 
-    // ===== INTRO - Dreamy and hopeful =====
-    // Soft pads set the mood
+// ===== SONG 1: Chill & Uplifting =====
+function playSong1(startTime) {
+    if (!musicPlaying || !audioCtx) return;
+    const { synth, pad, pluck, kick, snare, hat, bass, arp } = createInstruments(audioCtx, masterGain);
+    const bpm = 95;
+    const bt = 60 / bpm;
+    let t = startTime;
+    let m;
+
+    // INTRO
     pad([N.G3, N.B3, N.D4, N.G4], t, bt * 8, 0.05);
     pad([N.C4, N.E4, N.G4, N.B4], t + bt * 8, bt * 8, 0.05);
-
-    // Gentle arpeggio melody
     const introArp = [N.G4, N.B4, N.D5, N.G5, N.D5, N.B4, N.G4, N.D4];
-    for (let i = 0; i < 4; i++) {
-        arp(introArp, t + i * bt * 4, bt * 0.5, 0.06);
-    }
-
-    // Main theme melody - memorable and uplifting
-    const mainTheme = [
-        [N.D5, 1], [N.G5, 1], [N.A5, 2], [N.G5, 1], [N.E5, 1], [N.D5, 2],
-        [N.E5, 1], [N.G5, 1], [N.A5, 1], [N.B5, 1], [N.A5, 4]
-    ];
-
-    let m = t + bt * 4;
-    mainTheme.forEach(([note, beats]) => {
-        synth(note, m, bt * beats * 0.9, 0.1, 'triangle');
-        m += bt * beats;
-    });
-
+    for (let i = 0; i < 4; i++) arp(introArp, t + i * bt * 4, bt * 0.5, 0.06);
+    const mainTheme = [[N.D5,1],[N.G5,1],[N.A5,2],[N.G5,1],[N.E5,1],[N.D5,2],[N.E5,1],[N.G5,1],[N.A5,1],[N.B5,1],[N.A5,4]];
+    m = t + bt * 4;
+    mainTheme.forEach(([note, beats]) => { synth(note, m, bt * beats * 0.9, 0.1, 'triangle'); m += bt * beats; });
     t += bt * 16;
 
-    // ===== VERSE 1 - Energy builds, groove kicks in =====
-    // Chord progression: G - D - Em - C (uplifting pop progression)
-    pad([N.G3, N.B3, N.D4], t, bt * 4, 0.05);
-    pad([N.D3, N.F3, N.A3], t + bt * 4, bt * 4, 0.05);
-    pad([N.E3, N.G3, N.B3], t + bt * 8, bt * 4, 0.05);
-    pad([N.C3, N.E3, N.G3], t + bt * 12, bt * 4, 0.05);
-
-    // Bass groove
-    const bassLine = [N.G3, N.G3, N.D3, N.D3, N.E3, N.E3, N.C3, N.C3];
-    bassLine.forEach((n, i) => bass(n / 2, t + i * bt * 2, bt * 1.8, 0.12));
-
-    // Drums - laid back groove
-    for (let i = 0; i < 16; i++) {
-        if (i % 4 === 0) kick(t + bt * i, 0.12);
-        if (i % 4 === 2) snare(t + bt * i, 0.06);
-        hat(t + bt * i, 0.03);
-        if (i % 2 === 1) hat(t + bt * i + bt * 0.5, 0.02);
-    }
-
-    // Verse melody - playful and flowing
-    const verse1 = [
-        [N.B4, 1], [N.D5, 1], [N.E5, 1], [N.D5, 1], [N.B4, 2], [N.A4, 2],
-        [N.G4, 1], [N.A4, 1], [N.B4, 1], [N.D5, 1], [N.E5, 2], [N.D5, 2],
-        [N.B4, 1], [N.G4, 1], [N.A4, 1], [N.B4, 1], [N.G4, 4]
-    ];
-
-    m = t;
-    verse1.forEach(([note, beats]) => {
-        synth(note, m, bt * beats * 0.85, 0.09, 'triangle');
-        m += bt * beats;
-    });
-
+    // VERSE
+    pad([N.G3,N.B3,N.D4], t, bt*4, 0.05); pad([N.D3,N.F3,N.A3], t+bt*4, bt*4, 0.05);
+    pad([N.E3,N.G3,N.B3], t+bt*8, bt*4, 0.05); pad([N.C3,N.E3,N.G3], t+bt*12, bt*4, 0.05);
+    [N.G3,N.G3,N.D3,N.D3,N.E3,N.E3,N.C3,N.C3].forEach((n,i) => bass(n/2, t+i*bt*2, bt*1.8, 0.12));
+    for (let i = 0; i < 16; i++) { if(i%4===0) kick(t+bt*i,0.12); if(i%4===2) snare(t+bt*i,0.06); hat(t+bt*i,0.03); if(i%2===1) hat(t+bt*i+bt*0.5,0.02); }
+    const verse1 = [[N.B4,1],[N.D5,1],[N.E5,1],[N.D5,1],[N.B4,2],[N.A4,2],[N.G4,1],[N.A4,1],[N.B4,1],[N.D5,1],[N.E5,2],[N.D5,2],[N.B4,1],[N.G4,1],[N.A4,1],[N.B4,1],[N.G4,4]];
+    m = t; verse1.forEach(([note, beats]) => { synth(note, m, bt*beats*0.85, 0.09, 'triangle'); m += bt*beats; });
     t += bt * 16;
 
-    // ===== CHORUS - Full energy! Peaceful power =====
-    // Big warm chords
-    pad([N.G3, N.B3, N.D4, N.G4], t, bt * 4, 0.07);
-    pad([N.D3, N.A3, N.D4, N.F4], t + bt * 4, bt * 4, 0.07);
-    pad([N.E3, N.G3, N.B3, N.E4], t + bt * 8, bt * 4, 0.07);
-    pad([N.C3, N.G3, N.C4, N.E4], t + bt * 12, bt * 4, 0.07);
+    // CHORUS
+    pad([N.G3,N.B3,N.D4,N.G4], t, bt*4, 0.07); pad([N.D3,N.A3,N.D4,N.F4], t+bt*4, bt*4, 0.07);
+    pad([N.E3,N.G3,N.B3,N.E4], t+bt*8, bt*4, 0.07); pad([N.C3,N.G3,N.C4,N.E4], t+bt*12, bt*4, 0.07);
+    for (let i = 0; i < 16; i++) { bass([N.G2,N.G2,N.D2,N.D2,N.E2,N.E2,N.C2,N.C2][Math.floor(i/2)]||N.G2, t+bt*i, bt*0.8, 0.14); }
+    for (let i = 0; i < 16; i++) { kick(t+bt*i,0.13); if(i%2===1) kick(t+bt*i+bt*0.5,0.08); if(i%4===2) snare(t+bt*i,0.08); hat(t+bt*i,0.035); hat(t+bt*i+bt*0.5,0.025); }
+    const chorus = [[N.G5,2],[N.A5,1],[N.B5,1],[N.A5,2],[N.G5,2],[N.A5,2],[N.B5,2],[N.D6,4],[N.B5,2],[N.A5,1],[N.G5,1],[N.E5,2],[N.D5,2],[N.E5,2],[N.G5,2],[N.A5,4]];
+    m = t; chorus.forEach(([note, beats]) => { synth(note, m, bt*beats*0.9, 0.11, 'triangle'); synth(note/2, m, bt*beats*0.9, 0.05, 'sine'); m += bt*beats; });
+    const chordArps = [[N.D4,N.G4,N.B4,N.D5],[N.A3,N.D4,N.F4,N.A4],[N.B3,N.E4,N.G4,N.B4],[N.G3,N.C4,N.E4,N.G4]];
+    for (let i = 0; i < 4; i++) arp(chordArps[i], t+i*bt*4+bt, bt*0.4, 0.05);
+    t += bt * 16;
 
-    // Driving bass
-    for (let i = 0; i < 16; i++) {
-        const bassNotes = [N.G2, N.G2, N.D2, N.D2, N.E2, N.E2, N.C2, N.C2];
-        bass(bassNotes[Math.floor(i / 2)] || N.G2, t + bt * i, bt * 0.8, 0.14);
+    // BRIDGE
+    pad([N.E3,N.G3,N.B3,N.D4], t, bt*8, 0.05); pad([N.C3,N.E3,N.G3,N.C4], t+bt*8, bt*8, 0.05);
+    for (let i = 0; i < 16; i++) { if(i%4===0) kick(t+bt*i,0.08); if(i%8===4) snare(t+bt*i,0.04); if(i%2===0) hat(t+bt*i,0.02); }
+    const bridge = [[N.E5,3],[N.D5,1],[N.B4,4],[N.C5,2],[N.D5,2],[N.E5,4],[N.G5,3],[N.E5,1],[N.D5,4],[N.E5,2],[N.D5,2],[N.B4,4]];
+    m = t; bridge.forEach(([note, beats]) => { synth(note, m, bt*beats, 0.08, 'sine'); m += bt*beats; });
+    arp([N.B3,N.E4,N.G4,N.B4,N.E5,N.G5,N.B5,N.E6], t+bt*12, bt*0.5, 0.06);
+    t += bt * 16;
+
+    // FINAL CHORUS
+    pad([N.G3,N.B3,N.D4,N.G4], t, bt*4, 0.08); pad([N.D3,N.A3,N.D4,N.F4], t+bt*4, bt*4, 0.08);
+    pad([N.E3,N.G3,N.B3,N.E4], t+bt*8, bt*4, 0.08); pad([N.C3,N.G3,N.C4,N.E4], t+bt*12, bt*4, 0.08);
+    for (let i = 0; i < 16; i++) { bass([N.G2,N.G2,N.D2,N.D2,N.E2,N.E2,N.C2,N.C2][Math.floor(i/2)]||N.G2, t+bt*i, bt*0.9, 0.15); }
+    for (let i = 0; i < 16; i++) { kick(t+bt*i,0.14); if(i%2===1) kick(t+bt*i+bt*0.5,0.09); if(i%4===2) snare(t+bt*i,0.09); if(i%4===0&&i>0) snare(t+bt*i-bt*0.25,0.04); hat(t+bt*i,0.04); hat(t+bt*i+bt*0.25,0.02); hat(t+bt*i+bt*0.5,0.03); hat(t+bt*i+bt*0.75,0.02); }
+    const finalChorus = [[N.B5,1],[N.D6,1],[N.B5,1],[N.A5,1],[N.G5,2],[N.A5,2],[N.B5,2],[N.D6,2],[N.E6,4],[N.D6,2],[N.B5,1],[N.A5,1],[N.G5,2],[N.E5,2],[N.G5,2],[N.A5,2],[N.B5,4]];
+    m = t; finalChorus.forEach(([note, beats]) => { synth(note, m, bt*beats*0.9, 0.12, 'triangle'); synth(note/2, m, bt*beats*0.9, 0.06, 'triangle'); m += bt*beats; });
+    t += bt * 16;
+
+    // OUTRO
+    pad([N.G3,N.B3,N.D4,N.G4], t, bt*8, 0.06); pad([N.G3,N.D4,N.G4,N.B4], t+bt*8, bt*12, 0.04);
+    const outro = [[N.D5,2],[N.G5,2],[N.A5,4],[N.G5,2],[N.E5,2],[N.D5,4],[N.G4,8]];
+    m = t; outro.forEach(([note, beats]) => { synth(note, m, bt*beats*1.2, 0.07, 'sine'); m += bt*beats; });
+    arp([N.G4,N.B4,N.D5,N.G5], t+bt*12, bt*0.6, 0.04);
+    arp([N.D5,N.G5,N.B5,N.D6], t+bt*16, bt*0.8, 0.03);
+    t += bt * 20;
+    pad([N.G3,N.D4,N.G4,N.B4,N.D5], t, bt*6, 0.05);
+
+    return (bt * 16 * 6 + bt * 26) * 1000;
+}
+
+// ===== SONG 2: Energetic & Bouncy (Warmup Vibe) =====
+function playSong2(startTime) {
+    if (!musicPlaying || !audioCtx) return;
+    const { synth, pad, pluck, kick, snare, hat, bass, arp } = createInstruments(audioCtx, masterGain);
+    const bpm = 115;
+    const bt = 60 / bpm;
+    let t = startTime;
+    let m;
+
+    // INTRO — Punchy synth stabs
+    for (let i = 0; i < 8; i++) {
+        synth(N.E4, t + i * bt * 2, bt * 0.3, 0.08, 'square');
+        synth(N.B4, t + i * bt * 2, bt * 0.3, 0.06, 'square');
+        hat(t + i * bt * 2, 0.04);
+        if (i >= 4) kick(t + i * bt * 2, 0.10);
     }
+    arp([N.E4, N.G4, N.B4, N.E5, N.G5], t + bt * 12, bt * 0.3, 0.07);
+    t += bt * 16;
 
-    // Full drums
+    // VERSE — Bouncy bass, quick melody
+    // Chords: Em - G - C - D (energetic minor feel)
+    pad([N.E3, N.G3, N.B3], t, bt * 4, 0.05);
+    pad([N.G3, N.B3, N.D4], t + bt * 4, bt * 4, 0.05);
+    pad([N.C3, N.E3, N.G3], t + bt * 8, bt * 4, 0.05);
+    pad([N.D3, N.F3, N.A3], t + bt * 12, bt * 4, 0.05);
+
+    // Bouncy bass — offbeat hits
+    const bassNotes2 = [N.E2, N.E2, N.G2, N.G2, N.C2, N.C2, N.D2, N.D2];
+    bassNotes2.forEach((n, i) => {
+        bass(n, t + i * bt * 2, bt * 1.2, 0.13);
+        bass(n, t + i * bt * 2 + bt, bt * 0.6, 0.08);
+    });
+
+    // Driving drums
     for (let i = 0; i < 16; i++) {
         kick(t + bt * i, 0.13);
-        if (i % 2 === 1) kick(t + bt * i + bt * 0.5, 0.08);
-        if (i % 4 === 2) snare(t + bt * i, 0.08);
+        if (i % 4 === 2) snare(t + bt * i, 0.07);
         hat(t + bt * i, 0.035);
         hat(t + bt * i + bt * 0.5, 0.025);
     }
 
-    // Soaring chorus melody
-    const chorus = [
-        [N.G5, 2], [N.A5, 1], [N.B5, 1], [N.A5, 2], [N.G5, 2],
-        [N.A5, 2], [N.B5, 2], [N.D6, 4],
-        [N.B5, 2], [N.A5, 1], [N.G5, 1], [N.E5, 2], [N.D5, 2],
-        [N.E5, 2], [N.G5, 2], [N.A5, 4]
+    // Quick, playful melody
+    const verse2 = [
+        [N.E5, 1], [N.G5, 0.5], [N.A5, 0.5], [N.B5, 1], [N.A5, 1],
+        [N.G5, 1], [N.E5, 0.5], [N.D5, 0.5], [N.E5, 2],
+        [N.G5, 1], [N.A5, 1], [N.B5, 1], [N.D6, 1],
+        [N.B5, 1], [N.A5, 1], [N.G5, 2]
     ];
-
     m = t;
-    chorus.forEach(([note, beats]) => {
-        synth(note, m, bt * beats * 0.9, 0.11, 'triangle');
-        synth(note / 2, m, bt * beats * 0.9, 0.05, 'sine'); // Octave below
-        m += bt * beats;
-    });
-
-    // Counter melody arpeggios
-    for (let i = 0; i < 4; i++) {
-        const chordArps = [
-            [N.D4, N.G4, N.B4, N.D5],
-            [N.A3, N.D4, N.F4, N.A4],
-            [N.B3, N.E4, N.G4, N.B4],
-            [N.G3, N.C4, N.E4, N.G4]
-        ];
-        arp(chordArps[i], t + i * bt * 4 + bt, bt * 0.4, 0.05);
-    }
-
+    verse2.forEach(([note, beats]) => { synth(note, m, bt * beats * 0.8, 0.10, 'triangle'); m += bt * beats; });
     t += bt * 16;
 
-    // ===== BRIDGE - Breakdown, reflective =====
-    pad([N.E3, N.G3, N.B3, N.D4], t, bt * 8, 0.05);
-    pad([N.C3, N.E3, N.G3, N.C4], t + bt * 8, bt * 8, 0.05);
+    // CHORUS — Big energy, call and response
+    pad([N.E3, N.G3, N.B3, N.E4], t, bt * 4, 0.07);
+    pad([N.G3, N.B3, N.D4, N.G4], t + bt * 4, bt * 4, 0.07);
+    pad([N.C3, N.E3, N.G3, N.C4], t + bt * 8, bt * 4, 0.07);
+    pad([N.D3, N.F3, N.A3, N.D4], t + bt * 12, bt * 4, 0.07);
 
-    // Sparse drums
     for (let i = 0; i < 16; i++) {
-        if (i % 4 === 0) kick(t + bt * i, 0.08);
-        if (i % 8 === 4) snare(t + bt * i, 0.04);
-        if (i % 2 === 0) hat(t + bt * i, 0.02);
+        bass([N.E2, N.E2, N.G2, N.G2, N.C2, N.C2, N.D2, N.D2][Math.floor(i / 2)] || N.E2, t + bt * i, bt * 0.8, 0.14);
     }
 
-    // Emotional bridge melody
-    const bridge = [
-        [N.E5, 3], [N.D5, 1], [N.B4, 4],
-        [N.C5, 2], [N.D5, 2], [N.E5, 4],
-        [N.G5, 3], [N.E5, 1], [N.D5, 4],
-        [N.E5, 2], [N.D5, 2], [N.B4, 4]
-    ];
-
-    m = t;
-    bridge.forEach(([note, beats]) => {
-        synth(note, m, bt * beats, 0.08, 'sine');
-        m += bt * beats;
-    });
-
-    // Rising arpeggio buildup
-    const buildArp = [N.B3, N.E4, N.G4, N.B4, N.E5, N.G5, N.B5, N.E6];
-    arp(buildArp, t + bt * 12, bt * 0.5, 0.06);
-
-    t += bt * 16;
-
-    // ===== FINAL CHORUS - Peak energy, triumphant =====
-    pad([N.G3, N.B3, N.D4, N.G4], t, bt * 4, 0.08);
-    pad([N.D3, N.A3, N.D4, N.F4], t + bt * 4, bt * 4, 0.08);
-    pad([N.E3, N.G3, N.B3, N.E4], t + bt * 8, bt * 4, 0.08);
-    pad([N.C3, N.G3, N.C4, N.E4], t + bt * 12, bt * 4, 0.08);
-
-    // Big bass
-    for (let i = 0; i < 16; i++) {
-        const bn = [N.G2, N.G2, N.D2, N.D2, N.E2, N.E2, N.C2, N.C2];
-        bass(bn[Math.floor(i / 2)] || N.G2, t + bt * i, bt * 0.9, 0.15);
-    }
-
-    // Full powerful drums
+    // Double-time drums
     for (let i = 0; i < 16; i++) {
         kick(t + bt * i, 0.14);
-        if (i % 2 === 1) kick(t + bt * i + bt * 0.5, 0.09);
-        if (i % 4 === 2) snare(t + bt * i, 0.09);
-        if (i % 4 === 0 && i > 0) snare(t + bt * i - bt * 0.25, 0.04);
+        if (i % 2 === 1) snare(t + bt * i, 0.08);
         hat(t + bt * i, 0.04);
         hat(t + bt * i + bt * 0.25, 0.02);
         hat(t + bt * i + bt * 0.5, 0.03);
-        hat(t + bt * i + bt * 0.75, 0.02);
     }
 
-    // Final triumphant melody
-    const finalChorus = [
-        [N.B5, 1], [N.D6, 1], [N.B5, 1], [N.A5, 1], [N.G5, 2], [N.A5, 2],
-        [N.B5, 2], [N.D6, 2], [N.E6, 4],
-        [N.D6, 2], [N.B5, 1], [N.A5, 1], [N.G5, 2], [N.E5, 2],
-        [N.G5, 2], [N.A5, 2], [N.B5, 4]
+    // Anthemic chorus melody
+    const chorus2 = [
+        [N.B5, 2], [N.E6, 2], [N.D6, 2], [N.B5, 2],
+        [N.A5, 2], [N.G5, 2], [N.A5, 2], [N.B5, 2],
+        [N.E6, 3], [N.D6, 1], [N.B5, 2], [N.G5, 2],
+        [N.A5, 2], [N.B5, 2], [N.E5, 4]
     ];
-
     m = t;
-    finalChorus.forEach(([note, beats]) => {
-        synth(note, m, bt * beats * 0.9, 0.12, 'triangle');
-        synth(note / 2, m, bt * beats * 0.9, 0.06, 'triangle');
-        m += bt * beats;
-    });
-
+    chorus2.forEach(([note, beats]) => { synth(note, m, bt * beats * 0.85, 0.12, 'triangle'); synth(note / 2, m, bt * beats * 0.85, 0.05, 'sine'); m += bt * beats; });
     t += bt * 16;
 
-    // ===== OUTRO - Peaceful resolution =====
-    pad([N.G3, N.B3, N.D4, N.G4], t, bt * 8, 0.06);
-    pad([N.G3, N.D4, N.G4, N.B4], t + bt * 8, bt * 12, 0.04);
+    // BREAKDOWN — Half-time feel
+    pad([N.A3, N.C4, N.E4], t, bt * 8, 0.05);
+    pad([N.E3, N.G3, N.B3], t + bt * 8, bt * 8, 0.05);
+    for (let i = 0; i < 16; i++) {
+        if (i % 4 === 0) kick(t + bt * i, 0.10);
+        if (i % 8 === 4) snare(t + bt * i, 0.05);
+        if (i % 2 === 0) hat(t + bt * i, 0.025);
+    }
+    // Rising plucks
+    const rise = [N.E4, N.G4, N.A4, N.B4, N.D5, N.E5, N.G5, N.A5, N.B5, N.D6, N.E6];
+    rise.forEach((n, i) => pluck(n, t + bt * 8 + i * bt * 0.7, bt * 1.2, 0.04 + i * 0.005));
+    t += bt * 16;
 
-    // Final melody echo
-    const outro = [
-        [N.D5, 2], [N.G5, 2], [N.A5, 4],
-        [N.G5, 2], [N.E5, 2], [N.D5, 4],
-        [N.G4, 8]
+    // FINAL CHORUS — Peak
+    pad([N.E3, N.G3, N.B3, N.E4], t, bt * 4, 0.08);
+    pad([N.G3, N.B3, N.D4, N.G4], t + bt * 4, bt * 4, 0.08);
+    pad([N.C3, N.E3, N.G3, N.C4], t + bt * 8, bt * 4, 0.08);
+    pad([N.D3, N.F3, N.A3, N.D4], t + bt * 12, bt * 4, 0.08);
+    for (let i = 0; i < 16; i++) { bass([N.E2,N.E2,N.G2,N.G2,N.C2,N.C2,N.D2,N.D2][Math.floor(i/2)]||N.E2, t+bt*i, bt*0.9, 0.15); }
+    for (let i = 0; i < 16; i++) { kick(t+bt*i,0.15); if(i%2===1) snare(t+bt*i,0.09); hat(t+bt*i,0.04); hat(t+bt*i+bt*0.25,0.025); hat(t+bt*i+bt*0.5,0.035); hat(t+bt*i+bt*0.75,0.02); }
+    const finalC2 = [[N.B5,1],[N.E6,1],[N.D6,1],[N.B5,1],[N.A5,2],[N.G5,2],[N.A5,2],[N.B5,2],[N.E6,4],[N.D6,2],[N.B5,2],[N.A5,2],[N.G5,2],[N.B5,4]];
+    m = t; finalC2.forEach(([note, beats]) => { synth(note, m, bt*beats*0.9, 0.13, 'triangle'); synth(note/2, m, bt*beats*0.9, 0.06, 'triangle'); m += bt*beats; });
+    t += bt * 16;
+
+    // OUTRO
+    pad([N.E3, N.G3, N.B3, N.E4], t, bt * 8, 0.05);
+    arp([N.E4, N.G4, N.B4, N.E5], t, bt * 0.5, 0.05);
+    arp([N.B4, N.E5, N.G5, N.B5], t + bt * 4, bt * 0.6, 0.04);
+    synth(N.E5, t + bt * 8, bt * 8, 0.06, 'sine');
+    pad([N.E3, N.B3, N.E4, N.G4, N.B4], t + bt * 12, bt * 6, 0.04);
+
+    return (bt * 16 * 5 + bt * 18) * 1000;
+}
+
+// ===== SONG 3: Smooth & Jazzy (Laid-back) =====
+function playSong3(startTime) {
+    if (!musicPlaying || !audioCtx) return;
+    const { synth, pad, pluck, kick, snare, hat, bass, arp } = createInstruments(audioCtx, masterGain);
+    const bpm = 82;
+    const bt = 60 / bpm;
+    let t = startTime;
+    let m;
+
+    // INTRO — Warm Rhodes-like chords
+    pad([N.D3, N.F3, N.A3, N.C4], t, bt * 4, 0.05);
+    pad([N.G3, N.B3, N.D4, N.F4], t + bt * 4, bt * 4, 0.05);
+    pad([N.C3, N.E3, N.A3, N.C4], t + bt * 8, bt * 4, 0.05);
+    pad([N.F3, N.A3, N.C4, N.E4], t + bt * 12, bt * 4, 0.05);
+
+    // Gentle plucks
+    const introNotes = [N.A4, N.C5, N.D5, N.F5, N.A5, N.F5, N.D5, N.C5];
+    introNotes.forEach((n, i) => pluck(n, t + i * bt * 2, bt * 2.5, 0.06));
+    t += bt * 16;
+
+    // VERSE — Jazzy walking bass, swing feel
+    // Dm7 - G7 - Cmaj7 - Fmaj7 (ii-V-I-IV jazz progression)
+    pad([N.D3, N.F3, N.A3, N.C4], t, bt * 4, 0.05);
+    pad([N.G3, N.B3, N.D4, N.F4], t + bt * 4, bt * 4, 0.05);
+    pad([N.C3, N.E3, N.G3, N.B3], t + bt * 8, bt * 4, 0.05);
+    pad([N.F3, N.A3, N.C4, N.E4], t + bt * 12, bt * 4, 0.05);
+
+    // Walking bass
+    const walkBass = [N.D2, N.F2, N.A2, N.C3, N.G2, N.B2, N.D3, N.F3, N.C2, N.E2, N.G2, N.B2, N.F2, N.A2, N.C3, N.E3];
+    walkBass.forEach((n, i) => bass(n, t + i * bt, bt * 0.9, 0.11));
+
+    // Swing drums — kick on 1 and 3, snare on 2 and 4, shuffle hats
+    for (let i = 0; i < 16; i++) {
+        if (i % 4 === 0 || i % 4 === 2) kick(t + bt * i, 0.09);
+        if (i % 4 === 1 || i % 4 === 3) snare(t + bt * i, 0.04);
+        hat(t + bt * i, 0.03);
+        hat(t + bt * i + bt * 0.66, 0.02); // Swing feel — triplet hat
+    }
+
+    // Smooth melody — sax-like
+    const jazzMelody = [
+        [N.A4, 2], [N.C5, 1], [N.D5, 1], [N.F5, 2], [N.E5, 2],
+        [N.D5, 1], [N.C5, 1], [N.A4, 1], [N.G4, 1], [N.A4, 2], [N.C5, 2],
+        [N.E5, 2], [N.G5, 2], [N.F5, 2], [N.E5, 2],
+        [N.D5, 2], [N.C5, 1], [N.A4, 1], [N.G4, 4]
     ];
-
     m = t;
-    outro.forEach(([note, beats]) => {
-        synth(note, m, bt * beats * 1.2, 0.07, 'sine');
-        m += bt * beats;
-    });
+    jazzMelody.forEach(([note, beats]) => { synth(note, m, bt * beats * 0.9, 0.09, 'triangle'); m += bt * beats; });
+    t += bt * 16;
 
-    // Gentle ending arpeggios
-    arp([N.G4, N.B4, N.D5, N.G5], t + bt * 12, bt * 0.6, 0.04);
-    arp([N.D5, N.G5, N.B5, N.D6], t + bt * 16, bt * 0.8, 0.03);
+    // CHORUS — Opens up, more lush
+    pad([N.D3, N.F3, N.A3, N.D4], t, bt * 4, 0.06);
+    pad([N.G3, N.B3, N.D4, N.G4], t + bt * 4, bt * 4, 0.06);
+    pad([N.C3, N.E3, N.G3, N.C4], t + bt * 8, bt * 4, 0.06);
+    pad([N.A3, N.C4, N.E4, N.A4], t + bt * 12, bt * 4, 0.06);
 
-    // Final chord
-    t += bt * 20;
-    pad([N.G3, N.D4, N.G4, N.B4, N.D5], t, bt * 6, 0.05);
+    // Deeper bass
+    [N.D2, N.D2, N.G2, N.G2, N.C2, N.C2, N.A2, N.A2].forEach((n, i) => bass(n, t + i * bt * 2, bt * 1.8, 0.13));
 
-    // Loop seamlessly — schedule next iteration before this one ends
-    const songLength = (bt * 16 * 6 + bt * 26) * 1000;
+    // Groovier drums
+    for (let i = 0; i < 16; i++) {
+        if (i % 4 === 0) kick(t + bt * i, 0.11);
+        if (i % 4 === 2) kick(t + bt * i, 0.07);
+        if (i % 4 === 1 || i % 4 === 3) snare(t + bt * i, 0.05);
+        hat(t + bt * i, 0.03);
+        hat(t + bt * i + bt * 0.66, 0.025);
+    }
+
+    // Soaring melody
+    const jazzChorus = [
+        [N.D5, 2], [N.F5, 1], [N.A5, 1], [N.G5, 2], [N.F5, 2],
+        [N.G5, 2], [N.A5, 2], [N.C6, 4],
+        [N.A5, 2], [N.G5, 1], [N.F5, 1], [N.E5, 2], [N.D5, 2],
+        [N.E5, 2], [N.F5, 2], [N.A5, 4]
+    ];
+    m = t;
+    jazzChorus.forEach(([note, beats]) => { synth(note, m, bt * beats * 0.9, 0.11, 'triangle'); synth(note / 2, m, bt * beats * 0.9, 0.04, 'sine'); m += bt * beats; });
+    // Counter arps
+    arp([N.F4, N.A4, N.C5, N.F5], t + bt * 2, bt * 0.4, 0.04);
+    arp([N.G4, N.B4, N.D5, N.G5], t + bt * 6, bt * 0.4, 0.04);
+    arp([N.E4, N.G4, N.C5, N.E5], t + bt * 10, bt * 0.4, 0.04);
+    arp([N.A4, N.C5, N.E5, N.A5], t + bt * 14, bt * 0.4, 0.04);
+    t += bt * 16;
+
+    // BRIDGE — Mellow breakdown
+    pad([N.A3, N.C4, N.E4, N.G4], t, bt * 8, 0.05);
+    pad([N.D3, N.F3, N.A3, N.D4], t + bt * 8, bt * 8, 0.05);
+    for (let i = 0; i < 16; i++) {
+        if (i % 4 === 0) kick(t + bt * i, 0.07);
+        if (i % 8 === 4) snare(t + bt * i, 0.03);
+        if (i % 2 === 0) hat(t + bt * i, 0.02);
+    }
+    const jazzBridge = [
+        [N.E5, 3], [N.D5, 1], [N.C5, 4],
+        [N.A4, 2], [N.C5, 2], [N.D5, 4],
+        [N.F5, 3], [N.E5, 1], [N.D5, 4],
+        [N.C5, 2], [N.A4, 2], [N.G4, 4]
+    ];
+    m = t; jazzBridge.forEach(([note, beats]) => { synth(note, m, bt * beats, 0.07, 'sine'); m += bt * beats; });
+    t += bt * 16;
+
+    // FINAL CHORUS
+    pad([N.D3,N.F3,N.A3,N.D4], t, bt*4, 0.07); pad([N.G3,N.B3,N.D4,N.G4], t+bt*4, bt*4, 0.07);
+    pad([N.C3,N.E3,N.G3,N.C4], t+bt*8, bt*4, 0.07); pad([N.A3,N.C4,N.E4,N.A4], t+bt*12, bt*4, 0.07);
+    [N.D2,N.D2,N.G2,N.G2,N.C2,N.C2,N.A2,N.A2].forEach((n,i) => bass(n, t+i*bt*2, bt*1.8, 0.14));
+    for (let i = 0; i < 16; i++) { kick(t+bt*i, 0.12); if(i%4===1||i%4===3) snare(t+bt*i, 0.06); hat(t+bt*i, 0.035); hat(t+bt*i+bt*0.66, 0.025); }
+    const finalJazz = [[N.D5,1],[N.F5,1],[N.A5,2],[N.G5,2],[N.F5,2],[N.G5,2],[N.A5,2],[N.C6,4],[N.A5,2],[N.G5,1],[N.F5,1],[N.E5,2],[N.D5,2],[N.F5,2],[N.A5,2],[N.D5,4]];
+    m = t; finalJazz.forEach(([note, beats]) => { synth(note, m, bt*beats*0.9, 0.12, 'triangle'); synth(note/2, m, bt*beats*0.9, 0.05, 'sine'); m += bt*beats; });
+    t += bt * 16;
+
+    // OUTRO — Fade with gentle arps
+    pad([N.D3, N.A3, N.D4, N.F4], t, bt * 8, 0.05);
+    pad([N.D3, N.F3, N.A3, N.D4], t + bt * 8, bt * 10, 0.03);
+    arp([N.A4, N.D5, N.F5, N.A5], t, bt * 0.6, 0.05);
+    arp([N.F4, N.A4, N.D5, N.F5], t + bt * 4, bt * 0.7, 0.04);
+    synth(N.D5, t + bt * 8, bt * 8, 0.05, 'sine');
+    synth(N.A4, t + bt * 12, bt * 6, 0.04, 'sine');
+    pad([N.D3, N.A3, N.D4, N.F4, N.A4], t + bt * 14, bt * 6, 0.04);
+
+    return (bt * 16 * 5 + bt * 20) * 1000;
+}
+
+// Playlist system
+const songList = [playSong1, playSong2, playSong3];
+
+// ===== SEASON MODE SONG: Epic & Cinematic =====
+// Shared season helpers (created per song)
+function createSeasonFx(audioCtx, masterGain) {
+    function subDrop(time, vol = 0.18) {
+        if (!musicPlaying || !audioCtx) return;
+        const o = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        o.type = 'sine';
+        o.frequency.setValueAtTime(80, time);
+        o.frequency.exponentialRampToValueAtTime(30, time + 0.5);
+        g.gain.setValueAtTime(vol, time);
+        g.gain.exponentialRampToValueAtTime(0.001, time + 0.6);
+        o.connect(g); g.connect(masterGain);
+        o.start(time); o.stop(time + 0.7);
+    }
+    function stab(freqs, time, dur, vol = 0.09) {
+        if (!musicPlaying || !audioCtx) return;
+        freqs.forEach(f => {
+            const o = audioCtx.createOscillator();
+            const g = audioCtx.createGain();
+            o.type = 'sawtooth'; o.frequency.value = f;
+            g.gain.setValueAtTime(vol, time);
+            g.gain.exponentialRampToValueAtTime(0.001, time + dur);
+            o.connect(g); g.connect(masterGain);
+            o.start(time); o.stop(time + dur + 0.05);
+        });
+    }
+    return { subDrop, stab };
+}
+
+// ===== SEASON SONG 1: Arena Anthem (140 BPM) =====
+function playSeasonSong1(startTime) {
+    if (!musicPlaying || !audioCtx) return 0;
+    const { synth, pad, pluck, kick, snare, hat, bass, arp } = createInstruments(audioCtx, masterGain);
+    const { subDrop, stab } = createSeasonFx(audioCtx, masterGain);
+    const bpm = 140; const bt = 60 / bpm;
+    let t = startTime; let m;
+
+    // ===== QUICK INTRO — 4-beat count-in =====
+    pad([N.E3, N.B3], t, bt * 4, 0.04);
+    kick(t, 0.10); kick(t + bt, 0.11); kick(t + bt * 2, 0.12); kick(t + bt * 3, 0.14);
+    hat(t + bt * 2, 0.03); hat(t + bt * 3, 0.04);
+    snare(t + bt * 3.5, 0.08);
+    t += bt * 4;
+
+    // ===== SECTION 1 — Hype drop =====
+    subDrop(t, 0.20);
+    stab([N.E3, N.G3, N.B3, N.E4], t, bt * 0.3, 0.10);
+    pad([N.E3, N.G3, N.B3, N.E4], t, bt * 4, 0.07);
+    stab([N.C3, N.E3, N.G3, N.C4], t + bt * 4, bt * 0.3, 0.10);
+    pad([N.C3, N.E3, N.G3, N.C4], t + bt * 4, bt * 4, 0.07);
+    stab([N.G3, N.B3, N.D4, N.G4], t + bt * 8, bt * 0.3, 0.10);
+    pad([N.G3, N.B3, N.D4, N.G4], t + bt * 8, bt * 4, 0.07);
+    stab([N.D3, N.F3, N.A3, N.D4], t + bt * 12, bt * 0.3, 0.10);
+    pad([N.D3, N.F3, N.A3, N.D4], t + bt * 12, bt * 4, 0.07);
+    [N.E2,N.E2,N.C2,N.C2,N.G2,N.G2,N.D2,N.D2].forEach((n,i) => { bass(n, t+i*bt*2, bt*1.5, 0.16); bass(n, t+i*bt*2+bt, bt*0.6, 0.10); });
+    for (let i = 0; i < 16; i++) { kick(t+bt*i,0.15); if(i%4===2) snare(t+bt*i,0.10); if(i%4===0&&i>0) snare(t+bt*i-bt*0.25,0.05); hat(t+bt*i,0.04); hat(t+bt*i+bt*0.5,0.03); }
+    const drop1 = [[N.E5,1],[N.G5,0.5],[N.B5,0.5],[N.E6,2],[N.D6,1],[N.B5,1],[N.C6,2],[N.B5,1],[N.G5,1],[N.A5,2],[N.G5,2],[N.B5,1],[N.D6,0.5],[N.E6,0.5],[N.D6,1],[N.B5,1],[N.G5,1],[N.A5,1],[N.B5,2],[N.E5,4]];
+    m = t; drop1.forEach(([note,beats]) => { synth(note,m,bt*beats*0.8,0.12,'triangle'); m += bt*beats; });
+    t += bt * 16;
+
+    // ===== SECTION 2 — Swagger groove =====
+    pad([N.E3,N.B3,N.E4], t, bt*4, 0.05); pad([N.C3,N.G3,N.C4], t+bt*4, bt*4, 0.05);
+    pad([N.A3,N.E4,N.A4], t+bt*8, bt*4, 0.05); pad([N.D3,N.A3,N.D4], t+bt*12, bt*4, 0.05);
+    [N.E2,N.E2,N.C2,N.C2,N.A2,N.A2,N.D2,N.D2].forEach((n,i) => { bass(n, t+i*bt*2, bt*1.0, 0.14); if(i%2===0) bass(n, t+i*bt*2+bt*1.5, bt*0.4, 0.08); });
+    for (let i = 0; i < 16; i++) { if(i%2===0) kick(t+bt*i,0.13); if(i%4===2) snare(t+bt*i,0.08); hat(t+bt*i,0.035); hat(t+bt*i+bt*0.5,0.025); }
+    const v1 = [[N.B4,0.5],[N.E5,0.5],[N.G5,1],[N.E5,1],[N.B4,1],[N.C5,0.5],[N.E5,0.5],[N.G5,1],[N.A5,1],[N.G5,2],[N.E5,1],[N.G5,0.5],[N.A5,0.5],[N.B5,1],[N.A5,1],[N.G5,0.5],[N.E5,0.5],[N.D5,1],[N.E5,3]];
+    m = t; v1.forEach(([note,beats]) => { synth(note,m,bt*beats*0.8,0.09,'triangle'); m += bt*beats; });
+    arp([N.E4,N.B4,N.E5,N.G5], t+bt*2, bt*0.35, 0.05); arp([N.C4,N.G4,N.C5,N.E5], t+bt*6, bt*0.35, 0.05);
+    arp([N.A3,N.E4,N.A4,N.C5], t+bt*10, bt*0.35, 0.05); arp([N.D4,N.A4,N.D5,N.F5], t+bt*14, bt*0.35, 0.05);
+    t += bt * 16;
+
+    // ===== SECTION 3 — Build-up =====
+    pad([N.E3,N.G3,N.B3], t, bt*16, 0.06);
+    for (let i = 0; i < 32; i++) { snare(t+i*bt*0.5, 0.03+(i/32)*0.10); if(i>=16) hat(t+i*bt*0.5, (0.03+(i/32)*0.10)*0.4); }
+    for (let i = 0; i < 32; i++) { synth(N.E4+(N.E6-N.E4)*(i/32), t+i*bt*0.5, bt*0.6, 0.02+i*0.002, 'sine'); }
+    stab([N.E3,N.B3,N.E4], t, bt*2, 0.06); stab([N.E3,N.B3,N.E4], t+bt*4, bt*2, 0.07);
+    stab([N.E3,N.B3,N.E4], t+bt*8, bt*1, 0.08); stab([N.E3,N.B3,N.E4], t+bt*10, bt*1, 0.08);
+    stab([N.E3,N.B3,N.E4], t+bt*12, bt*0.5, 0.09); stab([N.E3,N.B3,N.E4], t+bt*13, bt*0.5, 0.09);
+    stab([N.E3,N.B3,N.E4], t+bt*14, bt*0.25, 0.10); stab([N.E3,N.B3,N.E4], t+bt*15, bt*0.25, 0.11);
+    t += bt * 16;
+
+    // ===== SECTION 4 — Maximum drop =====
+    subDrop(t, 0.22);
+    stab([N.E3,N.G3,N.B3,N.E4], t, bt*0.4, 0.12); pad([N.E3,N.G3,N.B3,N.E4], t, bt*4, 0.08);
+    stab([N.C3,N.E3,N.G3,N.C4], t+bt*4, bt*0.4, 0.12); pad([N.C3,N.E3,N.G3,N.C4], t+bt*4, bt*4, 0.08);
+    stab([N.G3,N.B3,N.D4,N.G4], t+bt*8, bt*0.4, 0.12); pad([N.G3,N.B3,N.D4,N.G4], t+bt*8, bt*4, 0.08);
+    stab([N.D3,N.F3,N.A3,N.D4], t+bt*12, bt*0.4, 0.12); pad([N.D3,N.F3,N.A3,N.D4], t+bt*12, bt*4, 0.08);
+    [N.E2,N.E2,N.C2,N.C2,N.G2,N.G2,N.D2,N.D2].forEach((n,i) => bass(n, t+i*bt*2, bt*1.5, 0.18));
+    for (let i = 0; i < 16; i++) { kick(t+bt*i,0.16); if(i%2===1) kick(t+bt*i+bt*0.5,0.10); if(i%4===2) snare(t+bt*i,0.11); hat(t+bt*i,0.04); hat(t+bt*i+bt*0.5,0.035); }
+    const fin1 = [[N.E5,0.5],[N.G5,0.5],[N.B5,1],[N.E6,2],[N.D6,1],[N.B5,1],[N.C6,1],[N.D6,1],[N.E6,2],[N.G5,2],[N.A5,1],[N.B5,0.5],[N.D6,0.5],[N.E6,2],[N.D6,1],[N.B5,1],[N.G5,1],[N.A5,1],[N.B5,2],[N.E6,4]];
+    m = t; fin1.forEach(([note,beats]) => { synth(note,m,bt*beats*0.85,0.14,'triangle'); synth(note/2,m,bt*beats*0.85,0.06,'triangle'); m += bt*beats; });
+    t += bt * 16;
+
+    // ===== OUTRO =====
+    pad([N.E3,N.G3,N.B3,N.E4], t, bt*8, 0.06);
+    synth(N.E5, t, bt*3, 0.08, 'triangle'); synth(N.G5, t+bt*3, bt*3, 0.07, 'triangle');
+    synth(N.B5, t+bt*6, bt*3, 0.06, 'triangle'); synth(N.E6, t+bt*9, bt*6, 0.06, 'sine');
+    kick(t,0.12); kick(t+bt*4,0.09); kick(t+bt*8,0.06);
+    pad([N.E3,N.B3,N.E4,N.G4,N.B4], t+bt*12, bt*6, 0.04);
+    return (bt * 4 + bt * 16 * 4 + bt * 18) * 1000;
+}
+
+// ===== SEASON SONG 2: Victory Lap (130 BPM) =====
+function playSeasonSong2(startTime) {
+    if (!musicPlaying || !audioCtx) return 0;
+    const { synth, pad, pluck, kick, snare, hat, bass, arp } = createInstruments(audioCtx, masterGain);
+    const { subDrop, stab } = createSeasonFx(audioCtx, masterGain);
+    const bpm = 130; const bt = 60 / bpm;
+    let t = startTime; let m;
+
+    // ===== QUICK INTRO — 4-beat count-in =====
+    pad([N.G3, N.D4], t, bt * 4, 0.04);
+    kick(t, 0.10); kick(t + bt, 0.11); kick(t + bt * 2, 0.12); kick(t + bt * 3, 0.14);
+    hat(t + bt * 2, 0.03); hat(t + bt * 3, 0.04);
+    snare(t + bt * 3.5, 0.08);
+    t += bt * 4;
+
+    // ===== SECTION 1 — Power drop, G major energy =====
+    subDrop(t, 0.18);
+    stab([N.G3,N.B3,N.D4,N.G4], t, bt*0.3, 0.10); pad([N.G3,N.B3,N.D4,N.G4], t, bt*4, 0.07);
+    stab([N.E3,N.G3,N.B3,N.E4], t+bt*4, bt*0.3, 0.10); pad([N.E3,N.G3,N.B3,N.E4], t+bt*4, bt*4, 0.07);
+    stab([N.C3,N.E3,N.G3,N.C4], t+bt*8, bt*0.3, 0.10); pad([N.C3,N.E3,N.G3,N.C4], t+bt*8, bt*4, 0.07);
+    stab([N.D3,N.F3,N.A3,N.D4], t+bt*12, bt*0.3, 0.10); pad([N.D3,N.F3,N.A3,N.D4], t+bt*12, bt*4, 0.07);
+    [N.G2,N.G2,N.E2,N.E2,N.C2,N.C2,N.D2,N.D2].forEach((n,i) => { bass(n, t+i*bt*2, bt*1.5, 0.15); bass(n, t+i*bt*2+bt, bt*0.5, 0.09); });
+    for (let i = 0; i < 16; i++) { kick(t+bt*i,0.14); if(i%4===2) snare(t+bt*i,0.09); hat(t+bt*i,0.04); hat(t+bt*i+bt*0.5,0.028); }
+    const mel1 = [[N.D5,1],[N.G5,1],[N.B5,2],[N.A5,1],[N.G5,1],[N.E5,2],[N.G5,1],[N.A5,0.5],[N.B5,0.5],[N.D6,2],[N.B5,2],[N.A5,1],[N.G5,1],[N.A5,2],[N.G5,4]];
+    m = t; mel1.forEach(([note,beats]) => { synth(note,m,bt*beats*0.8,0.11,'triangle'); m += bt*beats; });
+    t += bt * 16;
+
+    // ===== SECTION 2 — Groove verse =====
+    pad([N.G3,N.D4,N.G4], t, bt*4, 0.05); pad([N.E3,N.B3,N.E4], t+bt*4, bt*4, 0.05);
+    pad([N.C3,N.G3,N.C4], t+bt*8, bt*4, 0.05); pad([N.D3,N.A3,N.D4], t+bt*12, bt*4, 0.05);
+    [N.G2,N.G2,N.E2,N.E2,N.C2,N.C2,N.D2,N.D2].forEach((n,i) => bass(n, t+i*bt*2, bt*1.2, 0.13));
+    for (let i = 0; i < 16; i++) { if(i%2===0) kick(t+bt*i,0.12); if(i%4===2) snare(t+bt*i,0.07); hat(t+bt*i,0.035); hat(t+bt*i+bt*0.5,0.02); }
+    const mel2 = [[N.G4,1],[N.B4,0.5],[N.D5,0.5],[N.G5,2],[N.E5,1],[N.D5,1],[N.C5,1],[N.D5,0.5],[N.E5,0.5],[N.G5,1],[N.A5,1],[N.G5,2],[N.B5,1],[N.A5,0.5],[N.G5,0.5],[N.E5,1],[N.D5,1],[N.G4,4]];
+    m = t; mel2.forEach(([note,beats]) => { synth(note,m,bt*beats*0.8,0.09,'triangle'); m += bt*beats; });
+    arp([N.G4,N.B4,N.D5,N.G5], t+bt*2, bt*0.35, 0.05); arp([N.E4,N.G4,N.B4,N.E5], t+bt*6, bt*0.35, 0.05);
+    arp([N.C4,N.E4,N.G4,N.C5], t+bt*10, bt*0.35, 0.05); arp([N.D4,N.F4,N.A4,N.D5], t+bt*14, bt*0.35, 0.05);
+    t += bt * 16;
+
+    // ===== SECTION 3 — Big chorus =====
+    subDrop(t, 0.20);
+    stab([N.G3,N.B3,N.D4,N.G4], t, bt*0.4, 0.11); pad([N.G3,N.B3,N.D4,N.G4], t, bt*4, 0.08);
+    stab([N.E3,N.G3,N.B3,N.E4], t+bt*4, bt*0.4, 0.11); pad([N.E3,N.G3,N.B3,N.E4], t+bt*4, bt*4, 0.08);
+    stab([N.C3,N.E3,N.G3,N.C4], t+bt*8, bt*0.4, 0.11); pad([N.C3,N.E3,N.G3,N.C4], t+bt*8, bt*4, 0.08);
+    stab([N.D3,N.F3,N.A3,N.D4], t+bt*12, bt*0.4, 0.11); pad([N.D3,N.F3,N.A3,N.D4], t+bt*12, bt*4, 0.08);
+    [N.G2,N.G2,N.E2,N.E2,N.C2,N.C2,N.D2,N.D2].forEach((n,i) => bass(n, t+i*bt*2, bt*1.5, 0.17));
+    for (let i = 0; i < 16; i++) { kick(t+bt*i,0.15); if(i%2===1) kick(t+bt*i+bt*0.5,0.09); if(i%4===2) snare(t+bt*i,0.10); hat(t+bt*i,0.04); hat(t+bt*i+bt*0.25,0.02); hat(t+bt*i+bt*0.5,0.03); }
+    const cho2 = [[N.B5,1],[N.D6,1],[N.G5,2],[N.A5,2],[N.B5,2],[N.D6,2],[N.E6,2],[N.D6,2],[N.B5,2],[N.G5,1],[N.A5,1],[N.B5,2],[N.A5,2],[N.G5,4]];
+    m = t; cho2.forEach(([note,beats]) => { synth(note,m,bt*beats*0.85,0.13,'triangle'); synth(note/2,m,bt*beats*0.85,0.05,'sine'); m += bt*beats; });
+    t += bt * 16;
+
+    // ===== SECTION 4 — Peak energy finale =====
+    subDrop(t, 0.22);
+    stab([N.G3,N.B3,N.D4,N.G4], t, bt*0.4, 0.12); pad([N.G3,N.B3,N.D4,N.G4], t, bt*4, 0.09);
+    stab([N.E3,N.G3,N.B3,N.E4], t+bt*4, bt*0.4, 0.12); pad([N.E3,N.G3,N.B3,N.E4], t+bt*4, bt*4, 0.09);
+    stab([N.C3,N.E3,N.G3,N.C4], t+bt*8, bt*0.4, 0.12); pad([N.C3,N.E3,N.G3,N.C4], t+bt*8, bt*4, 0.09);
+    stab([N.D3,N.F3,N.A3,N.D4], t+bt*12, bt*0.4, 0.12); pad([N.D3,N.F3,N.A3,N.D4], t+bt*12, bt*4, 0.09);
+    [N.G2,N.G2,N.E2,N.E2,N.C2,N.C2,N.D2,N.D2].forEach((n,i) => bass(n, t+i*bt*2, bt*1.5, 0.18));
+    for (let i = 0; i < 16; i++) { kick(t+bt*i,0.16); if(i%2===1) snare(t+bt*i,0.10); hat(t+bt*i,0.04); hat(t+bt*i+bt*0.25,0.025); hat(t+bt*i+bt*0.5,0.035); }
+    const fin2 = [[N.D5,0.5],[N.G5,0.5],[N.B5,1],[N.D6,2],[N.E6,2],[N.D6,1],[N.B5,1],[N.G5,2],[N.A5,2],[N.B5,2],[N.D6,2],[N.G5,4],[N.B5,2],[N.D6,2],[N.G5,4]];
+    m = t; fin2.forEach(([note,beats]) => { synth(note,m,bt*beats*0.9,0.14,'triangle'); synth(note/2,m,bt*beats*0.9,0.06,'triangle'); m += bt*beats; });
+    t += bt * 16;
+
+    // OUTRO
+    pad([N.G3,N.B3,N.D4,N.G4], t, bt*8, 0.06);
+    synth(N.G5, t, bt*4, 0.07, 'triangle'); synth(N.D6, t+bt*4, bt*4, 0.06, 'triangle');
+    synth(N.G5, t+bt*8, bt*6, 0.05, 'sine');
+    kick(t,0.12); kick(t+bt*4,0.08);
+    pad([N.G3,N.D4,N.G4,N.B4], t+bt*10, bt*6, 0.04);
+    return (bt * 4 + bt * 16 * 4 + bt * 16) * 1000;
+}
+
+// ===== SEASON SONG 3: Championship Drive (145 BPM) =====
+function playSeasonSong3(startTime) {
+    if (!musicPlaying || !audioCtx) return 0;
+    const { synth, pad, pluck, kick, snare, hat, bass, arp } = createInstruments(audioCtx, masterGain);
+    const { subDrop, stab } = createSeasonFx(audioCtx, masterGain);
+    const bpm = 145; const bt = 60 / bpm;
+    let t = startTime; let m;
+
+    // ===== QUICK INTRO — 4-beat count-in =====
+    pad([N.A3, N.E4], t, bt * 4, 0.04);
+    kick(t, 0.10); kick(t + bt, 0.11); kick(t + bt * 2, 0.12); kick(t + bt * 3, 0.14);
+    hat(t + bt * 2, 0.03); hat(t + bt * 3, 0.04);
+    snare(t + bt * 3.5, 0.08);
+    t += bt * 4;
+
+    // ===== SECTION 1 — Explosive drop, A minor =====
+    subDrop(t, 0.20);
+    stab([N.A3,N.C4,N.E4,N.A4], t, bt*0.3, 0.10); pad([N.A3,N.C4,N.E4,N.A4], t, bt*4, 0.07);
+    stab([N.F3,N.A3,N.C4,N.F4], t+bt*4, bt*0.3, 0.10); pad([N.F3,N.A3,N.C4,N.F4], t+bt*4, bt*4, 0.07);
+    stab([N.G3,N.B3,N.D4,N.G4], t+bt*8, bt*0.3, 0.10); pad([N.G3,N.B3,N.D4,N.G4], t+bt*8, bt*4, 0.07);
+    stab([N.E3,N.G3,N.B3,N.E4], t+bt*12, bt*0.3, 0.10); pad([N.E3,N.G3,N.B3,N.E4], t+bt*12, bt*4, 0.07);
+    [N.A2,N.A2,N.F2,N.F2,N.G2,N.G2,N.E2,N.E2].forEach((n,i) => { bass(n, t+i*bt*2, bt*1.5, 0.16); bass(n, t+i*bt*2+bt, bt*0.5, 0.10); });
+    for (let i = 0; i < 16; i++) { kick(t+bt*i,0.15); if(i%4===2) snare(t+bt*i,0.10); if(i%2===1) hat(t+bt*i+bt*0.25,0.02); hat(t+bt*i,0.04); hat(t+bt*i+bt*0.5,0.03); }
+    const mel3a = [[N.A5,1],[N.C6,0.5],[N.E6,0.5],[N.D6,2],[N.C6,1],[N.A5,1],[N.G5,1],[N.A5,0.5],[N.C6,0.5],[N.D6,2],[N.C6,2],[N.E6,1],[N.D6,0.5],[N.C6,0.5],[N.A5,1],[N.G5,1],[N.A5,2],[N.E5,4]];
+    m = t; mel3a.forEach(([note,beats]) => { synth(note,m,bt*beats*0.8,0.12,'triangle'); m += bt*beats; });
+    t += bt * 16;
+
+    // ===== SECTION 2 — Dark groove =====
+    pad([N.A3,N.E4,N.A4], t, bt*4, 0.05); pad([N.F3,N.C4,N.F4], t+bt*4, bt*4, 0.05);
+    pad([N.G3,N.D4,N.G4], t+bt*8, bt*4, 0.05); pad([N.E3,N.B3,N.E4], t+bt*12, bt*4, 0.05);
+    [N.A2,N.A2,N.F2,N.F2,N.G2,N.G2,N.E2,N.E2].forEach((n,i) => { bass(n, t+i*bt*2, bt*1.0, 0.14); });
+    for (let i = 0; i < 16; i++) { if(i%2===0) kick(t+bt*i,0.13); if(i%4===2) snare(t+bt*i,0.08); if(i%4===0&&i>0) snare(t+bt*i-bt*0.5,0.04); hat(t+bt*i,0.035); hat(t+bt*i+bt*0.5,0.025); }
+    const mel3b = [[N.E5,0.5],[N.A5,0.5],[N.C6,1],[N.A5,1],[N.E5,1],[N.F5,0.5],[N.A5,0.5],[N.C6,1],[N.D6,1],[N.C6,2],[N.A5,1],[N.C6,0.5],[N.D6,0.5],[N.E6,1],[N.D6,1],[N.C6,0.5],[N.A5,0.5],[N.G5,1],[N.A5,3]];
+    m = t; mel3b.forEach(([note,beats]) => { synth(note,m,bt*beats*0.8,0.09,'triangle'); m += bt*beats; });
+    arp([N.A4,N.C5,N.E5,N.A5], t+bt*2, bt*0.35, 0.05); arp([N.F4,N.A4,N.C5,N.F5], t+bt*6, bt*0.35, 0.05);
+    arp([N.G4,N.B4,N.D5,N.G5], t+bt*10, bt*0.35, 0.05); arp([N.E4,N.G4,N.B4,N.E5], t+bt*14, bt*0.35, 0.05);
+    t += bt * 16;
+
+    // ===== SECTION 3 — Build then smash =====
+    pad([N.A3,N.C4,N.E4], t, bt*16, 0.06);
+    for (let i = 0; i < 32; i++) { snare(t+i*bt*0.5, 0.03+(i/32)*0.10); if(i>=16) hat(t+i*bt*0.5, 0.02+(i/32)*0.04); }
+    for (let i = 0; i < 32; i++) { synth(N.A4+(N.A6-N.A4)*(i/32), t+i*bt*0.5, bt*0.6, 0.02+i*0.002, 'sine'); }
+    stab([N.A3,N.E4,N.A4], t, bt*2, 0.06); stab([N.A3,N.E4,N.A4], t+bt*4, bt*1.5, 0.07);
+    stab([N.A3,N.E4,N.A4], t+bt*8, bt*1, 0.08); stab([N.A3,N.E4,N.A4], t+bt*10, bt*0.5, 0.09);
+    stab([N.A3,N.E4,N.A4], t+bt*12, bt*0.5, 0.10); stab([N.A3,N.E4,N.A4], t+bt*13, bt*0.25, 0.10);
+    stab([N.A3,N.E4,N.A4], t+bt*14, bt*0.25, 0.11); stab([N.A3,N.E4,N.A4], t+bt*15, bt*0.25, 0.12);
+    t += bt * 16;
+
+    // ===== SECTION 4 — Final explosion =====
+    subDrop(t, 0.22);
+    stab([N.A3,N.C4,N.E4,N.A4], t, bt*0.4, 0.12); pad([N.A3,N.C4,N.E4,N.A4], t, bt*4, 0.08);
+    stab([N.F3,N.A3,N.C4,N.F4], t+bt*4, bt*0.4, 0.12); pad([N.F3,N.A3,N.C4,N.F4], t+bt*4, bt*4, 0.08);
+    stab([N.G3,N.B3,N.D4,N.G4], t+bt*8, bt*0.4, 0.12); pad([N.G3,N.B3,N.D4,N.G4], t+bt*8, bt*4, 0.08);
+    stab([N.E3,N.G3,N.B3,N.E4], t+bt*12, bt*0.4, 0.12); pad([N.E3,N.G3,N.B3,N.E4], t+bt*12, bt*4, 0.08);
+    [N.A2,N.A2,N.F2,N.F2,N.G2,N.G2,N.E2,N.E2].forEach((n,i) => bass(n, t+i*bt*2, bt*1.5, 0.18));
+    for (let i = 0; i < 16; i++) { kick(t+bt*i,0.16); if(i%2===1) snare(t+bt*i,0.10); hat(t+bt*i,0.04); hat(t+bt*i+bt*0.25,0.025); hat(t+bt*i+bt*0.5,0.035); hat(t+bt*i+bt*0.75,0.02); }
+    const fin3 = [[N.A5,0.5],[N.C6,0.5],[N.E6,1],[N.D6,2],[N.C6,1],[N.A5,1],[N.G5,1],[N.A5,1],[N.C6,2],[N.E6,2],[N.D6,2],[N.E6,2],[N.A5,4],[N.C6,1],[N.D6,1],[N.E6,2],[N.A5,4]];
+    m = t; fin3.forEach(([note,beats]) => { synth(note,m,bt*beats*0.9,0.14,'triangle'); synth(note/2,m,bt*beats*0.9,0.06,'triangle'); m += bt*beats; });
+    t += bt * 16;
+
+    // OUTRO
+    pad([N.A3,N.C4,N.E4,N.A4], t, bt*8, 0.06);
+    synth(N.A5, t, bt*3, 0.08, 'triangle'); synth(N.C6, t+bt*3, bt*3, 0.07, 'triangle');
+    synth(N.E6, t+bt*6, bt*3, 0.06, 'triangle'); synth(N.A5, t+bt*9, bt*6, 0.05, 'sine');
+    kick(t,0.12); kick(t+bt*4,0.08);
+    pad([N.A3,N.E4,N.A4,N.C5,N.E5], t+bt*12, bt*6, 0.04);
+    return (bt * 4 + bt * 16 * 4 + bt * 18) * 1000;
+}
+
+const seasonSongList = [playSeasonSong1, playSeasonSong2, playSeasonSong3];
+var currentSeasonSongIndex = 0;
+
+function startMusic() {
+    if (musicPlaying) return;
+    seasonMusicMode = false;
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    musicPlaying = true;
+    masterGain = audioCtx.createGain();
+    masterGain.gain.value = 0.18;
+    masterGain.connect(audioCtx.destination);
+    playCurrentSong();
+}
+
+function playCurrentSong() {
+    if (!musicPlaying || !audioCtx) return;
+    const songFn = songList[currentSongIndex];
+    const songLengthMs = songFn(audioCtx.currentTime + 0.1);
     if (musicLoopTimer) clearTimeout(musicLoopTimer);
+    // After song ends, wait 3 seconds, then play next song
     musicLoopTimer = setTimeout(() => {
         if (musicPlaying && audioCtx) {
-            // Re-schedule notes on the same AudioContext for gapless looping
-            let t2 = audioCtx.currentTime + 0.1;
-            startMusicNotes(t2);
+            currentSongIndex = (currentSongIndex + 1) % songList.length;
+            playCurrentSong();
         }
-    }, songLength - 100);
+    }, songLengthMs + 3000);
+}
+
+// Start the special season mode music
+var seasonMusicMode = false;
+
+function startSeasonMusic() {
+    // Kill everything first
+    musicPlaying = false;
+    seasonMusicMode = false;
+    if (musicLoopTimer) { clearTimeout(musicLoopTimer); musicLoopTimer = null; }
+    if (audioCtx) { try { audioCtx.close(); } catch(e) {} audioCtx = null; }
+
+    // Fresh start
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    masterGain = audioCtx.createGain();
+    masterGain.gain.value = 0.18;
+    masterGain.connect(audioCtx.destination);
+    musicPlaying = true;
+    seasonMusicMode = true;
+    playNextSeasonSong();
+}
+
+function playNextSeasonSong() {
+    if (!musicPlaying || !audioCtx || !seasonMusicMode) return;
+    const songFn = seasonSongList[currentSeasonSongIndex];
+    const songLengthMs = songFn(audioCtx.currentTime + 0.1);
+    if (musicLoopTimer) clearTimeout(musicLoopTimer);
+    musicLoopTimer = setTimeout(() => {
+        if (musicPlaying && audioCtx && seasonMusicMode) {
+            currentSeasonSongIndex = (currentSeasonSongIndex + 1) % seasonSongList.length;
+            playNextSeasonSong();
+        }
+    }, (songLengthMs || 40000) + 3000);
 }
 
 function stopMusic() {
     musicPlaying = false;
+    seasonMusicMode = false;
     if (musicLoopTimer) { clearTimeout(musicLoopTimer); musicLoopTimer = null; }
     if (audioCtx) {
-        audioCtx.close();
+        try { audioCtx.close(); } catch(e) {}
         audioCtx = null;
     }
 }
@@ -395,6 +786,214 @@ function resumeMusic() {
     if (!musicPlaying && playerData && playerData.music) {
         startMusic();
     }
+}
+
+// ===== SOUND EFFECTS =====
+var sfxCtx = null;
+
+function getSfxCtx() {
+    try {
+        if (!sfxCtx || sfxCtx.state === 'closed') {
+            sfxCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+    } catch(e) { return null; }
+    return sfxCtx;
+}
+
+function canPlaySfx() {
+    return playerData && playerData.sound;
+}
+
+// Swish — clean sweep "ch-ching"
+function sfxSwish() {
+    if (!canPlaySfx()) return;
+    try {
+        const ctx = getSfxCtx(); if (!ctx) return;
+        const t = ctx.currentTime;
+        const buf = ctx.createBuffer(1, ctx.sampleRate * 0.15, ctx.sampleRate);
+        const d = buf.getChannelData(0);
+        for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / 800);
+        const n = ctx.createBufferSource();
+        const g = ctx.createGain();
+        const f = ctx.createBiquadFilter();
+        f.type = 'bandpass'; f.frequency.value = 3500; f.Q.value = 1;
+        g.gain.setValueAtTime(0.10, t);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+        n.buffer = buf;
+        n.connect(f); f.connect(g); g.connect(ctx.destination);
+        n.start(t);
+        const o = ctx.createOscillator();
+        const g2 = ctx.createGain();
+        o.type = 'sine';
+        o.frequency.setValueAtTime(1800, t + 0.06);
+        o.frequency.exponentialRampToValueAtTime(1200, t + 0.4);
+        g2.gain.setValueAtTime(0, t);
+        g2.gain.linearRampToValueAtTime(0.07, t + 0.07);
+        g2.gain.exponentialRampToValueAtTime(0.001, t + 0.45);
+        o.connect(g2); g2.connect(ctx.destination);
+        o.start(t + 0.05); o.stop(t + 0.5);
+        const o2 = ctx.createOscillator();
+        const g3 = ctx.createGain();
+        o2.type = 'sine';
+        o2.frequency.setValueAtTime(2700, t + 0.07);
+        o2.frequency.exponentialRampToValueAtTime(1800, t + 0.4);
+        g3.gain.setValueAtTime(0, t);
+        g3.gain.linearRampToValueAtTime(0.03, t + 0.08);
+        g3.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
+        o2.connect(g3); g3.connect(ctx.destination);
+        o2.start(t + 0.06); o2.stop(t + 0.45);
+        const o3 = ctx.createOscillator();
+        const g4 = ctx.createGain();
+        o3.type = 'sine';
+        o3.frequency.setValueAtTime(400, t + 0.04);
+        o3.frequency.exponentialRampToValueAtTime(200, t + 0.25);
+        g4.gain.setValueAtTime(0, t);
+        g4.gain.linearRampToValueAtTime(0.05, t + 0.06);
+        g4.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+        o3.connect(g4); g4.connect(ctx.destination);
+        o3.start(t + 0.03); o3.stop(t + 0.35);
+    } catch(e) {}
+}
+
+// Ball bounce — deep thud
+var lastBounceSfx = 0;
+function sfxBounce() {
+    if (!canPlaySfx()) return;
+    const now = performance.now();
+    if (now - lastBounceSfx < 300) return;
+    lastBounceSfx = now;
+    try {
+        const ctx = getSfxCtx();
+        const t = ctx.currentTime;
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.type = 'sine';
+        o.frequency.setValueAtTime(200, t);
+        o.frequency.exponentialRampToValueAtTime(80, t + 0.12);
+        g.gain.setValueAtTime(0.15, t);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+        o.connect(g); g.connect(ctx.destination);
+        o.start(t); o.stop(t + 0.2);
+    } catch(e) {}
+}
+
+// Dribble — clean basketball bounce
+var lastDribbleSfx = 0;
+function sfxDribble() {
+    if (!canPlaySfx()) return;
+    const now = performance.now();
+    if (now - lastDribbleSfx < 280) return;
+    lastDribbleSfx = now;
+    try {
+        const ctx = getSfxCtx(); if (!ctx) return;
+        const t = ctx.currentTime;
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.type = 'sine';
+        o.frequency.setValueAtTime(250, t);
+        o.frequency.exponentialRampToValueAtTime(80, t + 0.04);
+        g.gain.setValueAtTime(0.10, t);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
+        o.connect(g); g.connect(ctx.destination);
+        o.start(t); o.stop(t + 0.08);
+    } catch(e) {}
+}
+
+// Rim hit — metallic clang
+function sfxRim() {
+    if (!canPlaySfx()) return;
+    try {
+        const ctx = getSfxCtx(); if (!ctx) return;
+        const t = ctx.currentTime;
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.type = 'square';
+        o.frequency.setValueAtTime(800, t);
+        o.frequency.exponentialRampToValueAtTime(400, t + 0.15);
+        g.gain.setValueAtTime(0.08, t);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+        o.connect(g); g.connect(ctx.destination);
+        o.start(t); o.stop(t + 0.25);
+        const o2 = ctx.createOscillator();
+        const g2 = ctx.createGain();
+        o2.type = 'sine';
+        o2.frequency.setValueAtTime(2200, t);
+        o2.frequency.exponentialRampToValueAtTime(1800, t + 0.1);
+        g2.gain.setValueAtTime(0.06, t);
+        g2.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+        o2.connect(g2); g2.connect(ctx.destination);
+        o2.start(t); o2.stop(t + 0.2);
+    } catch(e) {}
+}
+
+// Buzzer — loud horn at end of game
+function sfxBuzzer() {
+    if (!canPlaySfx()) return;
+    try {
+        const ctx = getSfxCtx(); if (!ctx) return;
+        const t = ctx.currentTime;
+        [220, 277, 330].forEach(freq => {
+            const o = ctx.createOscillator();
+            const g = ctx.createGain();
+            o.type = 'sawtooth';
+            o.frequency.value = freq;
+            const f = ctx.createBiquadFilter();
+            f.type = 'lowpass'; f.frequency.value = 1500;
+            g.gain.setValueAtTime(0.08, t);
+            g.gain.setValueAtTime(0.08, t + 0.8);
+            g.gain.linearRampToValueAtTime(0, t + 1.0);
+            o.connect(f); f.connect(g); g.connect(ctx.destination);
+            o.start(t); o.stop(t + 1.1);
+        });
+    } catch(e) {}
+}
+
+// Steal — quick sharp rip sound
+function sfxSteal() {
+    if (!canPlaySfx()) return;
+    try {
+        const ctx = getSfxCtx(); if (!ctx) return;
+        const t = ctx.currentTime;
+        const buf = ctx.createBuffer(1, ctx.sampleRate * 0.08, ctx.sampleRate);
+        const d = buf.getChannelData(0);
+        for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / 600);
+        const n = ctx.createBufferSource();
+        const g = ctx.createGain();
+        const f = ctx.createBiquadFilter();
+        f.type = 'highpass'; f.frequency.value = 2000;
+        g.gain.setValueAtTime(0.15, t);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+        n.buffer = buf;
+        n.connect(f); f.connect(g); g.connect(ctx.destination);
+        n.start(t);
+    } catch(e) {}
+}
+
+// Crowd reaction — subtle roar on scoring
+function sfxCrowd(isThree) {
+    if (!canPlaySfx()) return;
+    try {
+        const ctx = getSfxCtx(); if (!ctx) return;
+        const t = ctx.currentTime;
+        const dur = isThree ? 1.2 : 0.7;
+        const vol = isThree ? 0.12 : 0.07;
+        const buf = ctx.createBuffer(1, ctx.sampleRate * dur, ctx.sampleRate);
+        const d = buf.getChannelData(0);
+        for (let i = 0; i < d.length; i++) {
+            const env = Math.sin((i / d.length) * Math.PI);
+            d[i] = (Math.random() * 2 - 1) * env;
+        }
+        const n = ctx.createBufferSource();
+        const g = ctx.createGain();
+        const f = ctx.createBiquadFilter();
+        f.type = 'bandpass'; f.frequency.value = 600; f.Q.value = 0.5;
+        const f2 = ctx.createBiquadFilter();
+        f2.type = 'lowpass'; f2.frequency.value = 1500;
+        g.gain.value = vol;
+        n.buffer = buf;
+        n.connect(f); f.connect(f2); f2.connect(g); g.connect(ctx.destination);
+        n.start(t);
+    } catch(e) {}
 }
 
 // Polyfill for roundRect (older browsers)
@@ -443,8 +1042,8 @@ const screens = {
 // ========================================
 const playerShowcase = document.getElementById('playerShowcase');
 const showcaseCtx = playerShowcase ? playerShowcase.getContext('2d') : null;
-let showcaseAnimationId = null;
-let showcaseFrame = 0;
+var showcaseAnimationId = null;
+var showcaseFrame = 0;
 
 // Draw a single pixel (for true pixel art look)
 function drawPixel(ctx, x, y, size, color) {
@@ -804,7 +1403,7 @@ const bgCanvas = document.getElementById('bgCanvas');
 const bgCtx = bgCanvas.getContext('2d');
 
 // Store hoops for start screen animation
-let startHoops = [];
+var startHoops = [];
 
 function resizeBgCanvas() {
     bgCanvas.width = window.innerWidth;
@@ -973,7 +1572,7 @@ const menuBgCanvas = document.getElementById('menuBgCanvas');
 const menuBgCtx = menuBgCanvas.getContext('2d');
 
 // Store hoops for animation
-let floatingHoops = [];
+var floatingHoops = [];
 
 function resizeMenuBgCanvas() {
     menuBgCanvas.width = window.innerWidth;
@@ -1188,7 +1787,7 @@ resizeMenuBgCanvas();
 animateFloatingHoops();
 
 // Player data (saved to localStorage)
-let playerData = {
+var playerData = {
     gamesPlayed: 0,
     wins: 0,
     totalPoints: 0,
@@ -1222,10 +1821,11 @@ function showScreen(screenName) {
     if (screens[screenName]) {
         screens[screenName].style.display = 'flex';
     }
-    // Music plays on menu and settings only
+    // Music plays on menu, settings, and season screens
+    const seasonScreens = ['slot', 'modePicker', 'createPlayer', 'playerProfile', 'season', 'seasonHub', 'schedule', 'standings', 'bracket', 'champion'];
     if (screenName === 'menu') {
-        resumeMusic();
-    } else if (screenName !== 'settings') {
+        if (!musicPlaying) resumeMusic();
+    } else if (screenName !== 'settings' && !seasonScreens.includes(screenName) && !seasonMusicMode) {
         stopMusic();
     }
 }
@@ -1251,11 +1851,14 @@ document.addEventListener('keydown', (e) => {
 
 // Season Mode button
 document.getElementById('seasonBtn').addEventListener('click', () => {
+    if (playerData && playerData.music) startSeasonMusic();
     showSlotScreen();
 });
 
 // Slot back button
 document.getElementById('slotBackBtn').addEventListener('click', () => {
+    stopMusic();
+    if (playerData && playerData.music) startMusic();
     showScreen('menu');
 });
 
@@ -1266,14 +1869,28 @@ document.getElementById('seasonBackBtn').addEventListener('click', () => {
 
 // Exhibition Game button
 document.getElementById('exhibitionBtn').addEventListener('click', () => {
-    showScreen('game');
-    startGame(false);
+    try {
+        stopMusic();
+        showScreen('game');
+        startGame(false);
+    } catch(e) {
+        showError('Exhibition start failed: ' + e.message, e.stack);
+        gameRunning = false;
+        showScreen('menu');
+    }
 });
 
 // Tutorial button
 document.getElementById('tutorialBtn').addEventListener('click', () => {
-    showScreen('game');
-    startTutorial();
+    try {
+        stopMusic();
+        showScreen('game');
+        startTutorial();
+    } catch(e) {
+        showError('Tutorial start failed: ' + e.message, e.stack);
+        gameRunning = false;
+        showScreen('menu');
+    }
 });
 
 // Settings button
@@ -1379,19 +1996,26 @@ document.getElementById('backToLobbyBtn').addEventListener('click', (e) => {
     }
 });
 
-// Also allow Escape key to go back to menu
+// Also allow Escape key to go back to menu (works even if game is stuck)
 document.addEventListener('keydown', (e) => {
-    if (e.code === 'Escape' && gameRunning) {
-        gameRunning = false;
-        if (seasonState.active) {
-            if (seasonState.phase === 'marchMadness') {
-                showBracketScreen();
+    if (e.code === 'Escape') {
+        // Recovery: if game screen is visible, always allow escape back
+        const gameScreenVisible = screens.game && screens.game.style.display !== 'none';
+        if (gameRunning || gameScreenVisible) {
+            gameRunning = false;
+            // Hide error box
+            const errorBox = document.getElementById('errorBox');
+            if (errorBox) errorBox.style.display = 'none';
+            if (seasonState.active) {
+                if (seasonState.phase === 'marchMadness') {
+                    showBracketScreen();
+                } else {
+                    showSeasonHub();
+                }
             } else {
-                showSeasonHub();
+                updateMenuDisplay();
+                showScreen('menu');
             }
-        } else {
-            updateMenuDisplay();
-            showScreen('menu');
         }
     }
 });
@@ -1513,9 +2137,9 @@ const collegeTeams = [
 // SEASON STATE (multi-slot)
 // ========================================
 const MAX_SEASON_SLOTS = 3;
-let currentSlot = 0; // 0-indexed internally, displayed as 1-indexed
+var currentSlot = 0; // 0-indexed internally, displayed as 1-indexed
 
-let seasonState = {
+var seasonState = {
     active: false,
     myTeam: null,
     schedule: [],
@@ -1637,18 +2261,18 @@ function resizeGameCanvas() {
 }
 window.addEventListener('resize', resizeGameCanvas);
 
-let gameRunning = false;
-let practiceMode = false;
-let tutorialStep = 0;
-let tutorialScore = 0;
-let tutorialTimer = 0;
-let tutorialSubState = 'instruction'; // 'instruction' | 'active' | 'success' | 'complete'
-let tutorialMoveDistance = 0;
-let tutorialSprintFrames = 0;
-let tutorialPrevX = 0;
-let tutorialPrevY = 0;
-let tutorialRebounder = null;
-let tutorialResetTimer = 0;
+var gameRunning = false;
+var practiceMode = false;
+var tutorialStep = 0;
+var tutorialScore = 0;
+var tutorialTimer = 0;
+var tutorialSubState = 'instruction'; // 'instruction' | 'active' | 'success' | 'complete'
+var tutorialMoveDistance = 0;
+var tutorialSprintFrames = 0;
+var tutorialPrevX = 0;
+var tutorialPrevY = 0;
+var tutorialRebounder = null;
+var tutorialResetTimer = 0;
 
 const TUTORIAL_STEPS = [
     { title: 'MOVE', instruction: 'Use Arrow Keys or WASD to move around', successMessage: 'Nice!' },
@@ -1660,17 +2284,215 @@ const TUTORIAL_STEPS = [
 ];
 
 // Shooting bar
-let shootingBarActive = false;
-let shootingBarValue = 0;
-let shootingBarDirection = 1;
-let shootingBarSpeed = 3;
+var shootingBarActive = false;
+var shootingBarValue = 0;
+var shootingBarDirection = 1;
+var shootingBarSpeed = 3;
 
 // Dribbling
-let dribblePhase = 0;
+var dribblePhase = 0;
 
 // Net animation
-let netSwayTimer = 0;
-let netSwayMax = 30;
+var netSwayTimer = 0;
+var netSwayMax = 30;
+
+// Release quality display
+var lastRelease = { text: '', timer: 0, pct: 0 };
+
+// Score notification
+var scoreNotification = { text: '', timer: 0 };
+const scoreMessages = ['SPLASH!', 'MONEY!', 'NICE!', 'GOOD!', 'SWISH!', 'BUCKET!', 'WET!', 'CASH!', 'BANG!', 'DAGGER!'];
+
+// ========================================
+// COMMENTATOR SYSTEM
+// ========================================
+var commentary = { text: '', timer: 0 };
+var lastCommentaryLine = '';
+var playerStreak = 0;
+var cpuStreak = 0;
+
+const COMMENTARY = {
+    playerScore2: [
+        "And he puts it in!",
+        "Easy bucket right there.",
+        "That's a smooth finish.",
+        "He makes it look easy!",
+        "Two points, no problem.",
+        "Good look, and it falls!",
+        "He's got the touch tonight.",
+        "Right on the money.",
+        "Clean finish at the rim.",
+        "He can't miss right now!"
+    ],
+    playerScore3: [
+        "From downtown... BANG!",
+        "He pulls up from three... SPLASH!",
+        "That's a deep three!",
+        "Nothing but net from deep!",
+        "He's feeling it from three!",
+        "Way downtown... and it's GOOD!",
+        "Catch and shoot... DRAINED IT!",
+        "Three-pointer... MONEY!",
+        "He lets it fly from deep... GOT IT!",
+        "What a shot from behind the arc!"
+    ],
+    cpuScore2: [
+        "And the opponent answers back.",
+        "CPU puts one on the board.",
+        "They're staying in this one.",
+        "Good basket by the defense.",
+        "And they respond with a bucket.",
+        "Can't let them get those easy ones.",
+        "They're finding their rhythm.",
+        "The other team scores.",
+        "That's a tough one to give up.",
+        "They're keeping it close."
+    ],
+    cpuScore3: [
+        "And the opponent hits a three!",
+        "Oh no, three-pointer... it's good.",
+        "They answer back from deep!",
+        "CPU knocks down a big three.",
+        "That one stings... three points.",
+        "They're hitting from outside too.",
+        "A big three-pointer for the other side.",
+        "That's a dagger from deep.",
+        "The defense needs to close out!",
+        "Three-ball... and it drops."
+    ],
+    playerMiss: [
+        "Off the rim!",
+        "No good!",
+        "That one won't fall.",
+        "He can't get it to go.",
+        "Rimmed out.",
+        "Just a bit off.",
+        "Close, but no cigar.",
+        "It rattles out.",
+        "Can't get a friendly bounce.",
+        "That was in and out!"
+    ],
+    cpuMiss: [
+        "And the defense holds!",
+        "No good! Great defense.",
+        "They can't convert.",
+        "Missed it! Get the rebound!",
+        "That one's off the mark.",
+        "The shot won't fall for them.",
+        "Brick! Go get the ball!",
+        "Good defense forces the miss.",
+        "They couldn't get it to drop.",
+        "Off the rim, rebound!"
+    ],
+    playerSteal: [
+        "He rips it away!",
+        "What a steal!",
+        "Picked his pocket!",
+        "Turnover! Great hands!",
+        "He read that like a book!",
+        "The ball is STOLEN!",
+        "Quick hands! He's got it!",
+        "Stripped! And he takes it!"
+    ],
+    cpuSteal: [
+        "Uh oh, they take it away!",
+        "Turnover! Gotta protect the ball.",
+        "Stolen! Be more careful!",
+        "They ripped it right out of his hands.",
+        "Careless with the ball there.",
+        "And it's a turnover.",
+        "They read the play perfectly.",
+        "Lost the handle!"
+    ],
+    block: [
+        "BLOCKED!",
+        "Get that out of here!",
+        "Swatted away!",
+        "REJECTED!",
+        "What a block!",
+        "Not in my house!",
+        "He sent that one back!"
+    ],
+    playerStreak: [
+        "He's on FIRE right now!",
+        "This kid is UNSTOPPABLE!",
+        "He's heating up!",
+        "Can anybody stop this guy?!",
+        "What a run he's on!",
+        "He's absolutely COOKING!"
+    ],
+    cpuStreak: [
+        "The opponent is on a run!",
+        "They're building momentum!",
+        "This is getting dangerous.",
+        "Need to slow them down!",
+        "They've got all the momentum."
+    ],
+    gameEndWin: [
+        "And that's the game! What a WIN!",
+        "It's over! Victory!",
+        "The final buzzer sounds... they WIN!",
+        "What a performance! They take the W!",
+        "That's the ballgame! Great win!"
+    ],
+    gameEndLose: [
+        "And that's the game. Tough loss.",
+        "The buzzer sounds... not their night.",
+        "It's over. They'll have to bounce back.",
+        "A hard-fought game, but they come up short.",
+        "That one got away from them."
+    ],
+    gameEndClose: [
+        "What a game! Down to the wire!",
+        "That was a THRILLER!",
+        "You can't write a better ending!",
+        "One of the best games you'll ever see!",
+        "An instant classic!"
+    ]
+};
+
+function showCommentary(category) {
+    if (practiceMode) return; // No commentary in tutorial
+    const lines = COMMENTARY[category];
+    if (!lines || lines.length === 0) return;
+
+    // Pick a random line, avoid repeating the last one
+    var line = lines[Math.floor(Math.random() * lines.length)];
+    var attempts = 0;
+    while (line === lastCommentaryLine && attempts < 5) {
+        line = lines[Math.floor(Math.random() * lines.length)];
+        attempts++;
+    }
+
+    lastCommentaryLine = line;
+    commentary.text = line;
+    commentary.timer = 120; // ~2 seconds at 60fps
+}
+
+function drawCommentary() {
+    if (commentary.timer <= 0) return;
+    commentary.timer--;
+
+    var alpha = 1;
+    if (commentary.timer < 30) alpha = commentary.timer / 30; // Fade out
+    if (commentary.timer > 105) alpha = (120 - commentary.timer) / 15; // Fade in
+
+    ctx.save();
+    ctx.font = 'bold 18px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+
+    // Background bar
+    var textWidth = ctx.measureText(commentary.text).width;
+    ctx.fillStyle = 'rgba(0, 0, 0, ' + (0.6 * alpha) + ')';
+    ctx.fillRect(court.centerX - textWidth / 2 - 15, 82, textWidth + 30, 28);
+
+    // Text
+    ctx.fillStyle = 'rgba(255, 255, 255, ' + alpha + ')';
+    ctx.fillText(commentary.text, court.centerX, 86);
+
+    ctx.restore();
+}
 
 // Game state
 const game = {
@@ -1692,6 +2514,7 @@ const court = {
     centerY: gameSize.height / 2,
     // Hoop on the RIGHT side (at court boundary)
     hoop: { x: gameSize.width - 160, y: gameSize.height * 0.50 },
+    threePointRadius: 200,
     // Court boundaries (shrunk to leave room for hoop/chairs)
     top: gameSize.height * 0.12,
     bottom: gameSize.height * 0.88,
@@ -1925,7 +2748,12 @@ class Player {
         }
 
         if (this.hasBall) {
+            const prevPhase = dribblePhase;
             dribblePhase += 0.15;
+            // Trigger dribble sound when ball hits ground (sine crosses zero going down)
+            if (Math.floor(prevPhase / Math.PI) !== Math.floor(dribblePhase / Math.PI)) {
+                sfxDribble();
+            }
         }
     }
 
@@ -1962,6 +2790,7 @@ class Player {
         const armR = isMoving ? Math.floor(runCycle * 2) : 0;
         const bodyBob = isMoving ? Math.floor(runAbs * 0.5) : 0;
         const isDribbling = this.hasBall && !shootingBarActive;
+        const isShooting = this.hasBall && shootingBarActive;
 
         // Shadow (stays on ground when jumping)
         ctx.fillStyle = 'rgba(0,0,0,0.25)';
@@ -2059,22 +2888,39 @@ class Player {
         // Back arm (behind body)
         const ba = dir === 1 ? -6 : 6;
         const baOff = dir === 1 ? -1 : 1;
-        px(ba, shoulderY, jerseyColor); px(ba + baOff, shoulderY, jerseyColor);
-        px(ba, shoulderY + 1, jerseyColor); px(ba + baOff, shoulderY + 1, jerseyDark);
-        for (let i = 0; i < 3; i++) {
-            px(ba, shoulderY + 2 + i + armL, skin);
-            px(ba + baOff, shoulderY + 2 + i + armL, skinDark);
+        if (isShooting) {
+            // Guide hand - stays at shoulder height, out to the side
+            px(ba, shoulderY, jerseyColor); px(ba + baOff, shoulderY, jerseyColor);
+            px(ba, shoulderY + 1, jerseyColor); px(ba + baOff, shoulderY + 1, jerseyDark);
+            px(ba, shoulderY + 2, skin); px(ba + baOff, shoulderY + 2, skinDark);
+            px(ba, shoulderY + 3, skin); px(ba + baOff, shoulderY + 3, skin);
+        } else {
+            px(ba, shoulderY, jerseyColor); px(ba + baOff, shoulderY, jerseyColor);
+            px(ba, shoulderY + 1, jerseyColor); px(ba + baOff, shoulderY + 1, jerseyDark);
+            for (let i = 0; i < 3; i++) {
+                px(ba, shoulderY + 2 + i + armL, skin);
+                px(ba + baOff, shoulderY + 2 + i + armL, skinDark);
+            }
+            // Hand
+            px(ba, shoulderY + 5 + armL, skin); px(ba + baOff, shoulderY + 5 + armL, skin);
+            px(ba, shoulderY + 6 + armL, skinDark); px(ba + baOff, shoulderY + 6 + armL, skinDark);
         }
-        // Hand
-        px(ba, shoulderY + 5 + armL, skin); px(ba + baOff, shoulderY + 5 + armL, skin);
-        px(ba, shoulderY + 6 + armL, skinDark); px(ba + baOff, shoulderY + 6 + armL, skinDark);
 
         // Front arm
         const fa = dir === 1 ? 6 : -6;
         const faOff = dir === 1 ? 1 : -1;
         px(fa, shoulderY, jerseyColor); px(fa + faOff, shoulderY, jerseyColor);
         px(fa, shoulderY + 1, jerseyColor); px(fa + faOff, shoulderY + 1, jerseyDark);
-        if (isDribbling) {
+        if (isShooting) {
+            // Shooting arm raised straight up
+            for (let i = 0; i < 4; i++) {
+                px(fa, shoulderY - 2 - i, skin);
+                px(fa + faOff, shoulderY - 2 - i, skinDark);
+            }
+            // Hand/wrist at top (flick position)
+            px(fa, shoulderY - 6, skin); px(fa + faOff, shoulderY - 6, skin);
+            px(fa, shoulderY - 7, skinDark); px(fa + faOff, shoulderY - 7, skinDark);
+        } else if (isDribbling) {
             // Dribbling arm - hand reaches down
             const dribY = Math.floor(Math.abs(Math.sin(dribblePhase)) * 3);
             for (let i = 0; i < 3; i++) {
@@ -2424,15 +3270,85 @@ function handleInput() {
         speed *= penalty;
     }
 
-    if (keys['ArrowUp'] || keys['KeyW']) player.vy = -speed;
-    if (keys['ArrowDown'] || keys['KeyS']) player.vy = speed;
-    if (keys['ArrowLeft'] || keys['KeyA']) player.vx = -speed;
-    if (keys['ArrowRight'] || keys['KeyD']) player.vx = speed;
+    if (!shootingBarActive) {
+        if (keys['ArrowUp'] || keys['KeyW']) player.vy = -speed;
+        if (keys['ArrowDown'] || keys['KeyS']) player.vy = speed;
+        if (keys['ArrowLeft'] || keys['KeyA']) player.vx = -speed;
+        if (keys['ArrowRight'] || keys['KeyD']) player.vx = speed;
+    }
 
-    // Shoot (Z)
-    if (keys['KeyZ'] && player.hasBall && !ball.shooting && player.shootingCooldown === 0) {
-        shoot(player);
-        keys['KeyZ'] = false;
+    // Shoot (Z hold/release with shooting bar)
+    if (player.hasBall || shootingBarActive) {
+        const distToHoop = Math.hypot(court.hoop.x - player.x, court.hoop.y - player.y);
+        const isThreeRange = distToHoop > (court.threePointRadius || 200);
+        const shotAttr = player.attrs ? (isThreeRange ? player.attrs.threePoint : (distToHoop < 80 ? player.attrs.finishing : player.attrs.midRange)) : 50;
+        const attrBonus = Math.max(0, (shotAttr - 50) / 600);
+        const greenSize = Math.max(0.08, 0.25 - distToHoop / 2000 + attrBonus);
+        const barSpeed = 2 + distToHoop / 150;
+
+        if (keys['KeyZ'] && player.hasBall && !ball.shooting && !shootingBarActive) {
+            shootingBarActive = true;
+            shootingBarValue = 0;
+            shootingBarDirection = 1;
+            shootingBarSpeed = barSpeed;
+            // Jump shot — player elevates
+            if (player.jumpZ <= 0) {
+                player.jumpVZ = 8;
+                player.jumpZ = 1;
+            }
+        }
+
+        if (!keys['KeyZ'] && shootingBarActive) {
+            shootingBarActive = false;
+            const greenStart = 1 - greenSize - 0.15;
+            const greenEnd = greenStart + greenSize;
+            const barPos = shootingBarValue / 100;
+
+            // Yellow zone accuracy based on distance (closer = higher %)
+            const yellowAccuracy = Math.max(0.20, 0.85 - distToHoop / 800);
+
+            let accuracy;
+            var releaseText;
+            if (barPos >= greenStart && barPos < greenEnd) {
+                accuracy = 1.0;   // Green = always scores
+                releaseText = 'PERFECT RELEASE';
+            } else if (barPos >= 0.3 && barPos < greenStart) {
+                accuracy = yellowAccuracy;  // Yellow = distance-based
+                releaseText = 'GOOD RELEASE';
+            } else {
+                accuracy = 0.0;   // Red = always miss
+                releaseText = 'BAD RELEASE';
+            }
+
+            // Store release quality for display
+            var releasePct = Math.round(Math.max(1, Math.min(99, 98 - distToHoop / 20)));
+            lastRelease = { text: releaseText, timer: 90, pct: releasePct };
+
+            player.hasBall = false;
+            ball.holder = null;
+            ball.shooting = true;
+            ball.willScore = Math.random() < accuracy;
+
+            const rimX = court.hoopScreenX || court.hoop.x;
+            const rimY = court.hoopScreenY || court.hoop.y;
+            const dx = rimX - ball.x;
+            const dy = rimY - ball.y;
+            const dist = Math.hypot(dx, dy);
+            const time = Math.max(30, dist / 8);
+
+            ball.vx = dx / time;
+            ball.vy = dy / time;
+            ball.vz = 8 + dist / 80;
+            ball.z = 0;
+
+            if (!ball.willScore) {
+                ball.vx += (Math.random() - 0.5) * 3;
+                ball.vy += (Math.random() - 0.5) * 3;
+            }
+
+            player.shootingCooldown = 30;
+            game.possession = player.team;
+        }
     }
 
     // Pass (X)
@@ -2496,7 +3412,7 @@ function shoot(player) {
 
     ball.vx = dx / time;
     ball.vy = dy / time;
-    ball.vz = 15; // initial upward velocity
+    ball.vz = 10; // initial upward velocity
     ball.z = 0;
 
     // Accuracy based on distance + attributes
@@ -2570,6 +3486,8 @@ function attemptSteal(player) {
             stealChance += (stealerDef - handlerBH) / 200;
             stealChance = Math.max(0.1, Math.min(0.6, stealChance));
             if (Math.random() < stealChance) {
+                sfxSteal();
+                showCommentary(player.team === 'player' ? 'playerSteal' : 'cpuSteal');
                 opp.hasBall = false;
                 player.hasBall = true;
                 ball.holder = player;
@@ -2647,6 +3565,7 @@ function performJump(player) {
                 const blockChance = 0.15 + (defAttr - 25) / 200;
                 if (Math.random() < blockChance) {
                     // Blocked!
+                    showCommentary('block');
                     ball.willScore = false;
                     ball.vx = -ball.vx * 0.5 + (Math.random() - 0.5) * 5;
                     ball.vy = (Math.random() - 0.5) * 5;
@@ -2701,7 +3620,7 @@ function callScreen(player) {
 }
 
 // Charge notification state
-let chargeNotification = { text: '', timer: 0 };
+var chargeNotification = { text: '', timer: 0 };
 
 // Update ball
 function updateBall() {
@@ -2719,7 +3638,7 @@ function updateBall() {
 
     if (ball.shooting) {
         ball.z += ball.vz;
-        ball.vz -= 0.5; // gravity
+        ball.vz -= 0.6; // gravity
 
         // Block detection: jumping defender near the ball in flight
         if (ball.z < 40 && ball.z > 0) {
@@ -2729,6 +3648,7 @@ function updateBall() {
                     const defAttr = (def.attrs && def.attrs.defense) || 50;
                     const blockChance = 0.12 + (defAttr - 25) / 250;
                     if (Math.random() < blockChance) {
+                        showCommentary('block');
                         ball.willScore = false;
                         ball.vx = -ball.vx * 0.5 + (Math.random() - 0.5) * 5;
                         ball.vy = (Math.random() - 0.5) * 5;
@@ -2755,18 +3675,50 @@ function updateBall() {
                 } else {
                     game.score.opponent += points;
                 }
+                // Net sway + celebration text
+                netSwayTimer = netSwayMax;
+                scoreNotification.text = scoreMessages[Math.floor(Math.random() * scoreMessages.length)];
+                scoreNotification.timer = 50;
+                sfxSwish();
+                sfxCrowd(points === 3);
+                // Commentary
+                if (game.possession === 'player') {
+                    playerStreak++;
+                    cpuStreak = 0;
+                    if (playerStreak >= 3) {
+                        showCommentary('playerStreak');
+                    } else {
+                        showCommentary(points === 3 ? 'playerScore3' : 'playerScore2');
+                    }
+                } else {
+                    cpuStreak++;
+                    playerStreak = 0;
+                    if (cpuStreak >= 3) {
+                        showCommentary('cpuStreak');
+                    } else {
+                        showCommentary(points === 3 ? 'cpuScore3' : 'cpuScore2');
+                    }
+                }
+                // Ball drops straight down through net (no rolling out)
+                ball.shooting = false;
+                ball.vx = 0;
+                ball.vy = 0;
+                ball.z = 0;
                 resetAfterScore(game.possession === 'player' ? 'opponent' : 'player');
             } else {
-                // Miss - ball bounces
+                // Miss - ball bounces off rim
+                sfxRim();
+                showCommentary(game.possession === 'player' ? 'playerMiss' : 'cpuMiss');
                 ball.shooting = false;
-                ball.vx = (Math.random() - 0.5) * 8;
-                ball.vy = (Math.random() - 0.5) * 8;
+                ball.vx = (Math.random() - 0.5) * 6;
+                ball.vy = (Math.random() - 0.5) * 6;
                 ball.z = 0;
             }
         }
 
         // Ball hit ground
         if (ball.z < 0 && !ball.shooting) {
+            sfxBounce();
             ball.z = 0;
             ball.vz = 0;
         }
@@ -2993,7 +3945,7 @@ function drawHoop3D(hoopX, courtMidY, dir) {
         ctx.fillRect(x * p, y * p, w * p, h * p);
     }
 
-    // === HOOP LAND STYLE BACKBOARD & STAND ===
+    // === HOOP ===
     const rx = 7;
     const rimCX = cx - dir * 17;  // rim position
     const ry = 4;
@@ -3002,7 +3954,7 @@ function drawHoop3D(hoopX, courtMidY, dir) {
     // Floor level
     const floorY = cy + 55;
 
-    // --- BACKBOARD (Hoop Land style) ---
+    // --- BACKBOARD ---
     const bbHeight = 32;
     const bbWidth = 10;
     const bbShear = 3;
@@ -3069,9 +4021,7 @@ function drawHoop3D(hoopX, courtMidY, dir) {
     let netStretch = 0;
     if (netSwayTimer > 0) {
         const t = netSwayTimer / netSwayMax;
-        // Sway starts strong, fades out with a sine bounce
         sway = Math.sin(netSwayTimer * 0.5) * t * 3;
-        // Net stretches down then bounces back
         netStretch = Math.sin(t * Math.PI) * 4;
     }
 
@@ -3081,7 +4031,6 @@ function drawHoop3D(hoopX, courtMidY, dir) {
         for (let ny = 1; ny < netH + Math.floor(netStretch); ny++) {
             const narrow = Math.floor(ny * 0.3);
             if (Math.abs(xi) <= rx - 1 - narrow) {
-                // Sway offset increases toward bottom of net
                 const swayOffset = Math.floor(sway * (ny / netH));
                 if ((xi + ny) % 2 === 0) {
                     px(rimCX + xi + swayOffset, topY + ny, '#d0d0d0');
@@ -3132,13 +4081,7 @@ function drawHoop3D(hoopX, courtMidY, dir) {
         }
     }
 
-    // Net gather
-    const gatherSway = Math.floor(sway);
-    const gatherY = botEdge[rx] + frontNetH + 1;
-    px(rimCX + gatherSway, gatherY, '#e0e0e0');
-    px(rimCX - 1 + gatherSway, gatherY, '#d0d0d0');
-    px(rimCX + 1 + gatherSway, gatherY, '#d0d0d0');
-    px(rimCX + gatherSway, gatherY + 1, '#cccccc');
+    // (net gather removed)
 
     const rimCenterX = rimCX * p;
     const rimCenterY = rimCY * p;
@@ -3151,7 +4094,7 @@ function drawCourt() {
     ctx.fillStyle = '#0e0e1a';
     ctx.fillRect(0, 0, court.width, court.height);
 
-    // === COURT DIMENSIONS (room for hoop + chairs) ===
+    // === COURT DIMENSIONS ===
     const courtTop = Math.floor(court.height * 0.12);
     const courtBottom = Math.floor(court.height * 0.88);
     const courtLeft = 80;
@@ -3161,102 +4104,155 @@ function drawCourt() {
     const courtH = courtBottom - courtTop;
     const courtW = courtRight - courtLeft;
 
-    // === EVEN WOOD FLOOR ===
+    // Scale: courtH = 50ft (NBA court width)
+    const scale = courtH / 50;
+
+    // === HARDWOOD FLOOR (staggered planks) ===
     ctx.fillStyle = '#c28a4e';
     ctx.fillRect(courtLeft, courtTop, courtW, courtH);
 
-    // Even plank lines
-    ctx.strokeStyle = '#b07a40';
-    ctx.lineWidth = 1;
-    const plankHeight = 12;
-    for (let y = courtTop + plankHeight; y < courtBottom; y += plankHeight) {
-        ctx.beginPath();
-        ctx.moveTo(courtLeft, y);
-        ctx.lineTo(courtRight, y);
-        ctx.stroke();
+    const plankH = 12;
+    const plankW = 60;
+    const plankShades = ['#c89858', '#c28a4e', '#bf8640', '#c4904c', '#ba8244', '#b87e3e', '#c99a5a', '#be8848'];
+    const seamColor = 'rgba(140, 95, 40, 0.5)';
+
+    for (let row = 0; courtTop + row * plankH < courtBottom; row++) {
+        const y = courtTop + row * plankH;
+        const h = Math.min(plankH, courtBottom - y);
+        const offset = (row % 3) * 20; // stagger seams between rows
+
+        // Draw planks with varying shades
+        for (let x = courtLeft - offset; x < courtRight; x += plankW) {
+            const drawX = Math.max(x, courtLeft);
+            const drawEnd = Math.min(x + plankW, courtRight);
+            if (drawEnd <= drawX) continue;
+            const ci = ((row * 7 + Math.floor((x - courtLeft + offset) / plankW) * 3) & 0x7fffffff) % plankShades.length;
+            ctx.fillStyle = plankShades[ci];
+            ctx.fillRect(drawX, y, drawEnd - drawX, h);
+
+            // Vertical seam
+            if (x > courtLeft) {
+                ctx.strokeStyle = seamColor;
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(drawX, y);
+                ctx.lineTo(drawX, y + h);
+                ctx.stroke();
+            }
+        }
+
+        // Horizontal plank line
+        if (row > 0) {
+            ctx.strokeStyle = 'rgba(160, 110, 48, 0.4)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(courtLeft, y);
+            ctx.lineTo(courtRight, y);
+            ctx.stroke();
+        }
     }
 
-    // === COURT LINES (basketball markings) ===
+    // === COURT LINES (NBA proportions) ===
     ctx.save();
     ctx.beginPath();
     ctx.rect(courtLeft, courtTop, courtW, courtH);
     ctx.clip();
 
-    const lineColor = 'rgba(255, 255, 255, 0.45)';
+    const lineColor = 'rgba(255, 255, 255, 0.55)';
+    ctx.strokeStyle = lineColor;
+    ctx.lineWidth = 3;
+
+    // Boundary lines
+    ctx.strokeRect(courtLeft, courtTop, courtW, courtH);
+
+    // Hoop center (for arc calculations)
+    const hoopX = courtRight + 10;
+
+    // === PAINT / KEY (16ft wide x 19ft deep from baseline) ===
+    const paintDepth = 19 * scale;
+    const paintWidth = 16 * scale;
+    const paintLeft = courtRight - paintDepth;
+    const paintTop = courtMidY - paintWidth / 2;
+
+    ctx.fillStyle = 'rgba(255, 107, 53, 0.08)';
+    ctx.fillRect(paintLeft, paintTop, paintDepth, paintWidth);
+
+    ctx.strokeStyle = lineColor;
+    ctx.beginPath();
+    ctx.rect(paintLeft, paintTop, paintDepth, paintWidth);
+    ctx.stroke();
+
+    // === PAINT HASH MARKS ===
+    const hashLen = 1.5 * scale;
+    const hashFeet = [7, 8, 11, 14];
+    for (const ft of hashFeet) {
+        const hx = courtRight - ft * scale;
+        ctx.beginPath();
+        ctx.moveTo(hx, paintTop - hashLen);
+        ctx.lineTo(hx, paintTop);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(hx, paintTop + paintWidth);
+        ctx.lineTo(hx, paintTop + paintWidth + hashLen);
+        ctx.stroke();
+    }
+
+    // === FREE THROW CIRCLE (6ft radius) ===
+    const ftRadius = 6 * scale;
+    // Solid half (toward basket)
+    ctx.strokeStyle = lineColor;
+    ctx.beginPath();
+    ctx.arc(paintLeft, courtMidY, ftRadius, -Math.PI / 2, Math.PI / 2, false);
+    ctx.stroke();
+    // Dashed half (toward half court)
+    ctx.setLineDash([5, 5]);
+    ctx.beginPath();
+    ctx.arc(paintLeft, courtMidY, ftRadius, Math.PI / 2, -Math.PI / 2, false);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // === THREE-POINT LINE (23.75ft arc radius, 22ft in corners) ===
+    const threeArcR = 27 * scale;
+    court.threePointRadius = threeArcR;
+    // Corner lines sit 3ft from each sideline (= 22ft from court center)
+    const cornerTopY = courtTop + 3 * scale;
+    const cornerBotY = courtBottom - 3 * scale;
+    const cornerDy = courtMidY - cornerTopY;
+
+    const arcDx = Math.sqrt(threeArcR * threeArcR - cornerDy * cornerDy);
+    const arcJunctionX = hoopX - arcDx;
+
+    // Corner straight lines (baseline to arc junction)
+    ctx.strokeStyle = lineColor;
+    ctx.beginPath();
+    ctx.moveTo(courtRight, cornerTopY);
+    ctx.lineTo(Math.min(arcJunctionX, courtRight), cornerTopY);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(courtRight, cornerBotY);
+    ctx.lineTo(Math.min(arcJunctionX, courtRight), cornerBotY);
+    ctx.stroke();
+
+    // Three-point arc (opens toward half court)
+    const arcStartAngle = Math.atan2(cornerTopY - courtMidY, arcJunctionX - hoopX);
+    const arcEndAngle = Math.atan2(cornerBotY - courtMidY, arcJunctionX - hoopX);
+    ctx.beginPath();
+    ctx.arc(hoopX, courtMidY, threeArcR, arcStartAngle, arcEndAngle, true);
+    ctx.stroke();
+
+    // === CENTER CIRCLE (6ft radius half-circle at half court line) ===
+    const centerR = 6 * scale;
     ctx.strokeStyle = lineColor;
     ctx.lineWidth = 2;
-
-    // Sidelines (top and bottom)
     ctx.beginPath();
-    ctx.moveTo(courtLeft, courtTop);
-    ctx.lineTo(courtRight, courtTop);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(courtLeft, courtBottom);
-    ctx.lineTo(courtRight, courtBottom);
-    ctx.stroke();
-
-    // Baseline (right edge at courtRight)
-    ctx.beginPath();
-    ctx.moveTo(courtRight, courtTop);
-    ctx.lineTo(courtRight, courtBottom);
-    ctx.stroke();
-
-    // Key/Paint rectangle (extends ~120px left from baseline, ~100px tall centered on courtMidY)
-    const paintW = 120;
-    const paintH = 100;
-    const paintLeft = courtRight - paintW;
-    const paintTop = courtMidY - paintH / 2;
-
-    // Paint fill
-    ctx.fillStyle = 'rgba(255, 107, 53, 0.08)';
-    ctx.fillRect(paintLeft, paintTop, paintW, paintH);
-
-    // Paint outline
-    ctx.strokeStyle = lineColor;
-    ctx.beginPath();
-    ctx.rect(paintLeft, paintTop, paintW, paintH);
-    ctx.stroke();
-
-    // Free throw line (left edge of paint)
-    ctx.beginPath();
-    ctx.moveTo(paintLeft, paintTop);
-    ctx.lineTo(paintLeft, paintTop + paintH);
-    ctx.stroke();
-
-    // Free throw circle (semicircle at free throw line, opening left)
-    const ftRadius = 50;
-    ctx.beginPath();
-    ctx.arc(paintLeft, courtMidY, ftRadius, -Math.PI / 2, Math.PI / 2, true);
-    ctx.stroke();
-
-    // Three-point arc (semicircular, centered on hoop)
-    const hoopCenterX = courtRight + 10;
-    const threeRadius = 180;
-    ctx.beginPath();
-    ctx.arc(hoopCenterX, courtMidY, threeRadius, Math.PI / 2 + 0.3, -Math.PI / 2 - 0.3, true);
-    ctx.stroke();
-
-    // Three-point straight lines connecting arc to baseline
-    const arcEndTopY = courtMidY - Math.sin(Math.PI / 2 + 0.3) * threeRadius;
-    const arcEndTopX = hoopCenterX + Math.cos(Math.PI / 2 + 0.3) * threeRadius;
-    const arcEndBotY = courtMidY + Math.sin(Math.PI / 2 + 0.3) * threeRadius;
-    const arcEndBotX = hoopCenterX + Math.cos(-Math.PI / 2 - 0.3) * threeRadius;
-    ctx.beginPath();
-    ctx.moveTo(arcEndTopX, arcEndTopY);
-    ctx.lineTo(courtRight, arcEndTopY);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(arcEndBotX, arcEndBotY);
-    ctx.lineTo(courtRight, arcEndBotY);
+    ctx.arc(courtLeft, courtMidY, centerR, -Math.PI / 2, Math.PI / 2, false);
     ctx.stroke();
 
     ctx.restore(); // End court lines clip
 
-    // === HALF COURT LOGO (on left edge, half in half out) ===
-    const logoR = Math.floor(courtH * 0.32);
+    // === HALF COURT LOGO ===
+    const logoR = Math.floor(courtH * 0.20);
 
-    // Clip to court area so logo is half in, half out
     ctx.save();
     ctx.beginPath();
     ctx.rect(courtLeft, courtTop, courtW, courtH);
@@ -3264,64 +4260,64 @@ function drawCourt() {
 
     // Outer ring
     ctx.strokeStyle = '#ff6b35';
-    ctx.lineWidth = 6;
+    ctx.lineWidth = 5;
     ctx.beginPath();
     ctx.arc(courtLeft, courtMidY, logoR, 0, Math.PI * 2);
     ctx.stroke();
 
-    // Second ring
-    ctx.lineWidth = 3;
+    // Inner ring
+    ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.arc(courtLeft, courtMidY, logoR - 10, 0, Math.PI * 2);
+    ctx.arc(courtLeft, courtMidY, logoR - 8, 0, Math.PI * 2);
     ctx.stroke();
 
     // Inner fill
     ctx.fillStyle = 'rgba(255, 107, 53, 0.06)';
     ctx.beginPath();
-    ctx.arc(courtLeft, courtMidY, logoR - 13, 0, Math.PI * 2);
+    ctx.arc(courtLeft, courtMidY, logoR - 10, 0, Math.PI * 2);
     ctx.fill();
 
-    // Inner accent ring
+    // Accent ring
     ctx.strokeStyle = '#ff6b35';
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.arc(courtLeft, courtMidY, logoR * 0.45, 0, Math.PI * 2);
+    ctx.arc(courtLeft, courtMidY, logoR * 0.4, 0, Math.PI * 2);
     ctx.stroke();
 
     // "HOOP" curved text (top)
     ctx.fillStyle = '#ff6b35';
-    ctx.font = 'bold 12px Arial';
+    ctx.font = 'bold 11px Arial';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    const textR = logoR * 0.7;
+    const textR = logoR * 0.68;
     const hoopText = 'H O O P';
     for (let i = 0; i < hoopText.length; i++) {
-        const angle = -Math.PI/2 - 0.45 + (i / (hoopText.length - 1)) * 0.9;
+        const angle = -Math.PI / 2 - 0.4 + (i / (hoopText.length - 1)) * 0.8;
         const tx = courtLeft + Math.cos(angle) * textR;
         const ty = courtMidY + Math.sin(angle) * textR;
         ctx.save();
         ctx.translate(tx, ty);
-        ctx.rotate(angle + Math.PI/2);
+        ctx.rotate(angle + Math.PI / 2);
         ctx.fillText(hoopText[i], 0, 0);
         ctx.restore();
     }
 
     // "WORLD" curved text (bottom)
-    ctx.font = 'bold 11px Arial';
+    ctx.font = 'bold 10px Arial';
     const worldText = 'W O R L D';
     for (let i = 0; i < worldText.length; i++) {
-        const angle = Math.PI/2 + 0.5 - (i / (worldText.length - 1)) * 1.0;
+        const angle = Math.PI / 2 + 0.45 - (i / (worldText.length - 1)) * 0.9;
         const tx = courtLeft + Math.cos(angle) * textR;
         const ty = courtMidY + Math.sin(angle) * textR;
         ctx.save();
         ctx.translate(tx, ty);
-        ctx.rotate(angle - Math.PI/2);
+        ctx.rotate(angle - Math.PI / 2);
         ctx.fillText(worldText[i], 0, 0);
         ctx.restore();
     }
 
     // Center basketball icon
-    const iconR = 14;
+    const iconR = 12;
     ctx.fillStyle = '#ff6b35';
     ctx.beginPath();
     ctx.arc(courtLeft, courtMidY, iconR, 0, Math.PI * 2);
@@ -3337,10 +4333,10 @@ function drawCourt() {
     ctx.lineTo(courtLeft, courtMidY + iconR);
     ctx.stroke();
     ctx.beginPath();
-    ctx.arc(courtLeft - iconR * 0.35, courtMidY, iconR * 0.65, -Math.PI/2, Math.PI/2);
+    ctx.arc(courtLeft - iconR * 0.35, courtMidY, iconR * 0.65, -Math.PI / 2, Math.PI / 2);
     ctx.stroke();
     ctx.beginPath();
-    ctx.arc(courtLeft + iconR * 0.35, courtMidY, iconR * 0.65, Math.PI/2, -Math.PI/2);
+    ctx.arc(courtLeft + iconR * 0.35, courtMidY, iconR * 0.65, Math.PI / 2, -Math.PI / 2);
     ctx.stroke();
 
     ctx.restore(); // End logo clip
@@ -3469,6 +4465,25 @@ function drawHUD() {
     ctx.font = '14px Arial';
     ctx.fillStyle = game.possession === 'player' ? playerColor : oppColor;
     ctx.fillText(game.possession === 'player' ? 'YOUR BALL' : 'CPU BALL', court.centerX, 55);
+
+    // Game time (skip in practice mode)
+    if (!practiceMode) {
+        const mins = Math.floor(game.gameTime / 60);
+        const secs = game.gameTime % 60;
+        ctx.font = 'bold 18px Arial';
+        ctx.fillStyle = game.gameTime <= 10 ? '#f44336' : '#fff';
+        ctx.fillText(`${mins}:${secs < 10 ? '0' : ''}${secs}`, court.centerX, 70);
+    }
+
+    // Shot clock
+    if (!practiceMode && playerData.shotClockSetting !== 0) {
+        ctx.font = '14px Arial';
+        ctx.fillStyle = game.shotClock <= 5 ? '#f44336' : '#aaa';
+        ctx.fillText(game.shotClock, court.centerX + 100, 25);
+    }
+
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
 }
 
 // Update shot clock
@@ -3504,6 +4519,16 @@ function updateGameTime() {
 
 // End the game
 function endGame() {
+    sfxBuzzer();
+    // End-game commentary
+    var scoreDiff = Math.abs(game.score.player - game.score.opponent);
+    if (scoreDiff <= 5) {
+        showCommentary('gameEndClose');
+    } else if (game.score.player > game.score.opponent) {
+        showCommentary('gameEndWin');
+    } else {
+        showCommentary('gameEndLose');
+    }
     game.gameOver = true;
     gameRunning = false;
 
@@ -3589,13 +4614,21 @@ function gameLoop() {
 
     try {
     // Clear
-    ctx.clearRect(0, 0, court.width, court.height);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     // Draw court
     drawCourt();
 
     // Handle input
     handleInput();
+
+    // Update shooting bar
+    if (shootingBarActive) {
+        shootingBarValue += shootingBarSpeed * shootingBarDirection;
+        if (shootingBarValue >= 100 || shootingBarValue <= 0) {
+            shootingBarDirection *= -1;
+        }
+    }
 
     // Update AI
     updateAI();
@@ -3639,16 +4672,123 @@ function gameLoop() {
     updateGameTime();
 
     // Draw players (sorted by Y for depth)
+    const controlled = getControlledPlayer();
     const allPlayers = [...playerTeam, ...opponentTeam].sort((a, b) => a.y - b.y);
     for (const p of allPlayers) {
         p.draw();
     }
 
-    // Draw hoop on top of players
+    // Ball depth: behind hoop when held (dribbling) or arcing high
+    const ballBehindHoop = ball.holder || ball.z > 40;
+
+    if (ballBehindHoop) {
+        if (ball.holder) {
+            if (shootingBarActive && ball.holder === controlled) {
+                // Ball held above head during shot form
+                const screen = toScreen(ball.holder.x, ball.holder.y, 80);
+                const sc = screen.scale;
+                const br = 10 * sc;
+                ctx.fillStyle = '#ff8c00';
+                ctx.beginPath();
+                ctx.arc(screen.x, screen.y, br, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.strokeStyle = '#8b4513';
+                ctx.lineWidth = 1.5 * sc;
+                ctx.beginPath();
+                ctx.moveTo(screen.x - br, screen.y);
+                ctx.lineTo(screen.x + br, screen.y);
+                ctx.moveTo(screen.x, screen.y - br);
+                ctx.lineTo(screen.x, screen.y + br);
+                ctx.stroke();
+            } else {
+                drawDribblingBall(ball.holder);
+            }
+        } else {
+            drawBall();
+        }
+    }
+
+    // Draw hoop on top
     drawHoopOverlay();
 
-    // Draw ball
-    drawBall();
+    // Draw ball in front of hoop (coming down through basket)
+    if (!ballBehindHoop) {
+        drawBall();
+    }
+
+    // Draw HUD (scoreboard, time, shot clock)
+    drawHUD();
+
+    // Draw commentary text
+    drawCommentary();
+
+    // Score notification near hoop
+    if (scoreNotification.timer > 0) {
+        scoreNotification.timer--;
+        const alpha = Math.min(1, scoreNotification.timer / 20);
+        const hoopScreen = toScreen(court.hoop.x, court.hoop.y, 60);
+        const floatUp = (50 - scoreNotification.timer) * 0.8;
+        ctx.font = 'bold 22px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = `rgba(255, 255, 100, ${alpha})`;
+        ctx.strokeStyle = `rgba(0, 0, 0, ${alpha})`;
+        ctx.lineWidth = 3;
+        ctx.strokeText(scoreNotification.text, hoopScreen.x - 40, hoopScreen.y - floatUp);
+        ctx.fillText(scoreNotification.text, hoopScreen.x - 40, hoopScreen.y - floatUp);
+        ctx.textAlign = 'left';
+    }
+
+    // Draw shooting bar if active
+    if (shootingBarActive && controlled) {
+        const screen = toScreen(controlled.x, controlled.y, 110);
+        const distToHoop = Math.hypot(court.hoop.x - controlled.x, court.hoop.y - controlled.y);
+        const greenSize = Math.max(0.18, 0.30 - distToHoop / 2000);
+        drawShootingBar(screen.x, screen.y, greenSize, distToHoop);
+    }
+
+    // Shot percentage / release quality under player's feet
+    if (controlled) {
+        const feetScreen = toScreen(controlled.x, controlled.y, -10);
+
+        if (lastRelease.timer > 0) {
+            // Show release quality after a shot (dark box with % and quality text)
+            lastRelease.timer--;
+            var rlAlpha = lastRelease.timer < 20 ? lastRelease.timer / 20 : 1;
+
+            var boxW = 100, boxH = 32;
+            var boxX = feetScreen.x - boxW / 2;
+            var boxY = feetScreen.y - 2;
+
+            ctx.fillStyle = 'rgba(30, 20, 15, ' + (0.8 * rlAlpha) + ')';
+            ctx.fillRect(boxX, boxY, boxW, boxH);
+            ctx.strokeStyle = 'rgba(80, 70, 60, ' + (0.6 * rlAlpha) + ')';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(boxX, boxY, boxW, boxH);
+
+            ctx.font = 'bold 13px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillStyle = 'rgba(255, 255, 255, ' + rlAlpha + ')';
+            ctx.fillText(lastRelease.pct + '%', feetScreen.x, boxY + 13);
+
+            ctx.font = 'bold 10px Arial';
+            var rlColor = lastRelease.text === 'PERFECT RELEASE' ? '76, 175, 80' :
+                          lastRelease.text === 'GOOD RELEASE' ? '255, 235, 59' : '244, 67, 54';
+            ctx.fillStyle = 'rgba(' + rlColor + ', ' + rlAlpha + ')';
+            ctx.fillText(lastRelease.text, feetScreen.x, boxY + 26);
+            ctx.textAlign = 'left';
+        } else {
+            // Show live shot percentage when not showing release
+            const distToHoop = Math.hypot(court.hoop.x - controlled.x, court.hoop.y - controlled.y);
+            const shotPct = Math.round(Math.max(20, 98 - distToHoop / 20));
+            const pctText = Math.min(99, Math.max(1, shotPct)) + '%';
+
+            ctx.font = 'bold 12px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+            ctx.fillText(pctText, feetScreen.x, feetScreen.y + 8);
+            ctx.textAlign = 'left';
+        }
+    }
 
     // Draw charge notification
     if (chargeNotification.timer > 0) {
@@ -3661,11 +4801,11 @@ function gameLoop() {
     }
 
     } catch (error) {
-        const errorBox = document.getElementById('errorBox');
-        if (errorBox) {
-            errorBox.style.display = 'block';
-            errorBox.innerHTML = `<p><strong>Game Error:</strong> ${error.message}<br><small>${error.stack}</small></p>`;
-        }
+        console.error('Game error:', error);
+        ctx.fillStyle = 'red';
+        ctx.font = 'bold 16px monospace';
+        ctx.fillText('ERROR: ' + error.message, 20, 40);
+        ctx.fillText(error.stack ? error.stack.split('\n')[1] : '', 20, 60);
     }
 
     requestAnimationFrame(gameLoop);
@@ -3750,12 +4890,17 @@ function startTutorial() {
 }
 
 // Draw shooting bar with distance-based green zone
-function drawShootingBar(x, y, greenSize) {
+function drawShootingBar(x, y, greenSize, distToHoop) {
     greenSize = greenSize || 0.20;
+    distToHoop = distToHoop || 200;
     const barWidth = 120;
     const barHeight = 15;
-    const greenStart = 1 - greenSize - 0.15;
-    const yellowStart = 0.3;
+
+    // Red zones grow with distance, green shrinks
+    const redLeft = Math.min(0.40, 0.15 + distToHoop / 800);   // left red zone
+    const redRight = Math.min(0.25, 0.10 + distToHoop / 1000); // right red zone
+    const greenStart = 1 - greenSize - redRight;
+    const yellowStart = redLeft;
 
     // Bar background
     ctx.fillStyle = '#333';
@@ -3763,19 +4908,19 @@ function drawShootingBar(x, y, greenSize) {
 
     // Red zone (left)
     ctx.fillStyle = '#f44336';
-    ctx.fillRect(x - barWidth/2, y, barWidth * yellowStart, barHeight);
+    ctx.fillRect(x - barWidth/2, y, barWidth * redLeft, barHeight);
 
-    // Yellow zone (middle)
+    // Yellow zone (middle — fills between red and green)
     ctx.fillStyle = '#ffeb3b';
     ctx.fillRect(x - barWidth/2 + barWidth * yellowStart, y, barWidth * (greenStart - yellowStart), barHeight);
 
-    // Green zone (sweet spot - shrinks with distance)
+    // Green zone (sweet spot — shrinks with distance)
     ctx.fillStyle = '#4caf50';
     ctx.fillRect(x - barWidth/2 + barWidth * greenStart, y, barWidth * greenSize, barHeight);
 
-    // Red zone (far right)
+    // Red zone (right)
     ctx.fillStyle = '#f44336';
-    ctx.fillRect(x - barWidth/2 + barWidth * (greenStart + greenSize), y, barWidth * 0.15, barHeight);
+    ctx.fillRect(x - barWidth/2 + barWidth * (greenStart + greenSize), y, barWidth * redRight, barHeight);
 
     // Moving indicator
     const indicatorX = x - barWidth/2 + (shootingBarValue / 100) * barWidth;
@@ -4017,7 +5162,11 @@ function tutorialLoop() {
                     ball.swishing = true;
                     ball.swishTimer = 25;
                     netSwayTimer = netSwayMax;
+                    scoreNotification.text = scoreMessages[Math.floor(Math.random() * scoreMessages.length)];
+                    scoreNotification.timer = 50;
+                    sfxSwish();
                 } else {
+                    sfxRim();
                     ball.shooting = false;
                     ball.z = 20;
                     ball.vx = -4 - Math.random() * 2;
@@ -4027,6 +5176,7 @@ function tutorialLoop() {
             }
 
             if (ball.z < 0) {
+                sfxBounce();
                 ball.shooting = false;
                 ball.z = 0;
             }
@@ -4089,62 +5239,97 @@ function tutorialLoop() {
     // === Draw player ===
     controlled.draw();
 
-    // Ball depth: draw ball BEHIND hoop when arcing high over it
-    const ballBehindHoop = !ball.holder && ball.z > 40;
+    // Ball depth: behind hoop when held (dribbling) or arcing high
+    const ballBehindHoop = ball.holder || ball.z > 40;
 
-    // Draw ball behind hoop if it's arcing over
     if (ballBehindHoop) {
-        drawBall();
-    }
-
-    // Draw hoop on top of player (and behind-ball if applicable)
-    drawHoopOverlay();
-
-    // Draw ball in front of hoop (normal case)
-    if (!ballBehindHoop) {
-        const ballHolder = ball.holder;
-        if (ballHolder) {
-            if (shootingBarActive && ballHolder === controlled) {
-                const screen = toScreen(ballHolder.x, ballHolder.y, 70);
-                const scale = screen.scale;
-                const ballRadius = 12 * scale;
-
+        if (ball.holder) {
+            if (shootingBarActive && ball.holder === controlled) {
+                const screen = toScreen(ball.holder.x, ball.holder.y, 80);
+                const sc = screen.scale;
+                const br = 10 * sc;
                 ctx.fillStyle = '#ff8c00';
                 ctx.beginPath();
-                ctx.arc(screen.x, screen.y, ballRadius, 0, Math.PI * 2);
+                ctx.arc(screen.x, screen.y, br, 0, Math.PI * 2);
                 ctx.fill();
-
                 ctx.strokeStyle = '#8b4513';
-                ctx.lineWidth = 2 * scale;
+                ctx.lineWidth = 1.5 * sc;
                 ctx.beginPath();
-                ctx.moveTo(screen.x - ballRadius, screen.y);
-                ctx.lineTo(screen.x + ballRadius, screen.y);
-                ctx.moveTo(screen.x, screen.y - ballRadius);
-                ctx.lineTo(screen.x, screen.y + ballRadius);
+                ctx.moveTo(screen.x - br, screen.y);
+                ctx.lineTo(screen.x + br, screen.y);
+                ctx.moveTo(screen.x, screen.y - br);
+                ctx.lineTo(screen.x, screen.y + br);
                 ctx.stroke();
             } else {
-                drawDribblingBall(ballHolder);
+                drawDribblingBall(ball.holder);
             }
-        } else if (!ball.holder) {
+        } else {
             drawBall();
         }
     }
 
+    drawHoopOverlay();
+
+    if (!ballBehindHoop) {
+        drawBall();
+    }
+
     // Draw shooting bar if active
     if (shootingBarActive && controlled) {
-        const screen = toScreen(controlled.x, controlled.y, 90);
+        const screen = toScreen(controlled.x, controlled.y, 110);
         const distToHoop = Math.hypot(court.hoop.x - controlled.x, court.hoop.y - controlled.y);
-        const greenSize = Math.max(0.08, 0.25 - distToHoop / 2000);
-        drawShootingBar(screen.x, screen.y, greenSize);
+        const greenSize = Math.max(0.18, 0.30 - distToHoop / 2000);
+        drawShootingBar(screen.x, screen.y, greenSize, distToHoop);
+    }
+
+    // Shot percentage / release quality under player's feet
+    if (controlled) {
+        const feetScreen = toScreen(controlled.x, controlled.y, -10);
+
+        if (lastRelease.timer > 0) {
+            lastRelease.timer--;
+            var trlAlpha = lastRelease.timer < 20 ? lastRelease.timer / 20 : 1;
+
+            var tBoxW = 100, tBoxH = 32;
+            var tBoxX = feetScreen.x - tBoxW / 2;
+            var tBoxY = feetScreen.y - 2;
+
+            ctx.fillStyle = 'rgba(30, 20, 15, ' + (0.8 * trlAlpha) + ')';
+            ctx.fillRect(tBoxX, tBoxY, tBoxW, tBoxH);
+            ctx.strokeStyle = 'rgba(80, 70, 60, ' + (0.6 * trlAlpha) + ')';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(tBoxX, tBoxY, tBoxW, tBoxH);
+
+            ctx.font = 'bold 13px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillStyle = 'rgba(255, 255, 255, ' + trlAlpha + ')';
+            ctx.fillText(lastRelease.pct + '%', feetScreen.x, tBoxY + 13);
+
+            ctx.font = 'bold 10px Arial';
+            var trlColor = lastRelease.text === 'PERFECT RELEASE' ? '76, 175, 80' :
+                           lastRelease.text === 'GOOD RELEASE' ? '255, 235, 59' : '244, 67, 54';
+            ctx.fillStyle = 'rgba(' + trlColor + ', ' + trlAlpha + ')';
+            ctx.fillText(lastRelease.text, feetScreen.x, tBoxY + 26);
+            ctx.textAlign = 'left';
+        } else {
+            const distToHoop = Math.hypot(court.hoop.x - controlled.x, court.hoop.y - controlled.y);
+            const shotPct = Math.round(Math.max(20, 98 - distToHoop / 20));
+            const pctText = Math.min(99, Math.max(1, shotPct)) + '%';
+
+            ctx.font = 'bold 12px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+            ctx.fillText(pctText, feetScreen.x, feetScreen.y + 8);
+            ctx.textAlign = 'left';
+        }
     }
 
     } catch (error) {
         console.error('Tutorial error:', error);
-        const errorBox = document.getElementById('errorBox');
-        if (errorBox) {
-            errorBox.style.display = 'block';
-            errorBox.innerHTML = `<p><strong>Tutorial Error:</strong> ${error.message}<br><small>${error.stack}</small></p>`;
-        }
+        ctx.fillStyle = 'red';
+        ctx.font = 'bold 16px monospace';
+        ctx.fillText('ERROR: ' + error.message, 20, 40);
+        ctx.fillText(error.stack ? error.stack.split('\n')[1] : '', 20, 60);
     }
 
     requestAnimationFrame(tutorialLoop);
@@ -4162,6 +5347,13 @@ function startGame(isPractice) {
     game.lastTimeUpdate = Date.now();
     game.gameOver = false;
     game.shotClock = playerData.shotClockSetting !== undefined ? playerData.shotClockSetting : 24;
+
+    // Reset commentary and release display
+    commentary.text = '';
+    commentary.timer = 0;
+    playerStreak = 0;
+    cpuStreak = 0;
+    lastRelease.timer = 0;
 
     // Reset player positions (side view: x = left-right, y = depth)
     const midY = court.height * 0.6; // Middle depth
@@ -4242,10 +5434,12 @@ function showModePicker() {
 }
 
 document.getElementById('modeCollege').querySelector('.btn').addEventListener('click', () => {
+    stopMusic();
     showScreen('careerIntro');
 });
 
 document.getElementById('careerIntroContinueBtn').addEventListener('click', () => {
+    if (playerData && playerData.music) startSeasonMusic();
     showScreen('createPlayer');
 });
 
@@ -4264,7 +5458,7 @@ const heightOptions = [
     { label: '6\'11"', value: 1.2 }
 ];
 
-let careerPlayer = {
+var careerPlayer = {
     firstName: '', lastName: '', number: 1, hometown: '',
     position: 'PG',
     primaryArchetype: null, secondaryArchetype: null,
@@ -4558,7 +5752,7 @@ const STATE_CITIES = {
 // State arrow picker
 const stateNames = Object.keys(STATE_CITIES);
 const stateOptions = [{ key: '', label: 'Select State' }, ...stateNames.map(s => ({ key: s, label: s }))];
-let selectedState = '';
+var selectedState = '';
 buildArrowPicker('stateArrow', stateOptions, (opt) => {
     selectedState = opt.key;
     const cityField = document.getElementById('cityField');
@@ -5186,7 +6380,7 @@ function openActiveSlot() {
     }
 }
 
-let selectedTeamIndex = null;
+var selectedTeamIndex = null;
 
 function showTeamSelection() {
     selectedTeamIndex = null;
@@ -5432,27 +6626,33 @@ function applyCareerPlayerToGame() {
 }
 
 function startSeasonGame(opponentIndex) {
-    const myTeamData = collegeTeams[seasonState.myTeam];
-    const oppTeamData = collegeTeams[opponentIndex];
-    seasonState.currentOpponent = opponentIndex;
+    try {
+        const myTeamData = collegeTeams[seasonState.myTeam];
+        const oppTeamData = collegeTeams[opponentIndex];
+        seasonState.currentOpponent = opponentIndex;
 
-    // Set jersey colors for player team
-    for (const p of playerTeam) {
-        p.jerseyColor = myTeamData.color1;
-        p.jerseyColor2 = myTeamData.color2;
-        p.shortsColor = myTeamData.color2;
+        // Set jersey colors for player team
+        for (const p of playerTeam) {
+            p.jerseyColor = myTeamData.color1;
+            p.jerseyColor2 = myTeamData.color2;
+            p.shortsColor = myTeamData.color2;
+        }
+
+        // Set jersey colors for opponent team
+        for (const p of opponentTeam) {
+            p.jerseyColor = oppTeamData.color1;
+            p.jerseyColor2 = oppTeamData.color2;
+            p.shortsColor = oppTeamData.color2;
+        }
+
+        showScreen('game');
+        startGame(false);
+        applyCareerPlayerToGame();
+    } catch(e) {
+        showError('Season game start failed: ' + e.message, e.stack);
+        gameRunning = false;
+        showSeasonHub();
     }
-
-    // Set jersey colors for opponent team
-    for (const p of opponentTeam) {
-        p.jerseyColor = oppTeamData.color1;
-        p.jerseyColor2 = oppTeamData.color2;
-        p.shortsColor = oppTeamData.color2;
-    }
-
-    showScreen('game');
-    startGame(false);
-    applyCareerPlayerToGame();
 }
 
 function simSeasonGame() {
@@ -5574,7 +6774,7 @@ function showScheduleScreen() {
 document.getElementById('scheduleBackBtn').addEventListener('click', () => showSeasonHub());
 
 // Standings Screen
-let standingsConference = 'SEC';
+var standingsConference = 'SEC';
 
 function showStandingsScreen() {
     showScreen('standings');
@@ -5869,7 +7069,7 @@ function showChampionScreen() {
     startConfetti();
 }
 
-let confettiId = null;
+var confettiId = null;
 function startConfetti() {
     const canvas = document.getElementById('confettiCanvas');
     if (!canvas) return;
